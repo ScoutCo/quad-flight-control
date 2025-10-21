@@ -139,7 +139,7 @@ def interpolate_plan_state(states: List[PlanState], interp_t: float) -> PlanStat
     Notes:
         - If interp_t is before the first state, returns the first state.
         - If after the last state, returns the last state.
-        - Yaw is blended via shortest-arc interpolation in degrees.
+        - Yaw is not interpolated, just use "next" state heading
         - Position and speed are linearly interpolated.
     """
     if not states:
@@ -191,7 +191,8 @@ def interpolate_plan_state(states: List[PlanState], interp_t: float) -> PlanStat
     z = lerp(lower.pos.z, upper.pos.z)
 
     # Yaw (degrees, shortest arc)
-    yaw_deg = _angle_lerp_deg(lower.yaw_deg, upper.yaw_deg, alpha)
+    # yaw_deg = _angle_lerp_deg(lower.yaw_deg, upper.yaw_deg, alpha)
+    yaw_deg = upper.yaw_deg
 
     # Speed
     vel = lerp(lower.vel, upper.vel)
