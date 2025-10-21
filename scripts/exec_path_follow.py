@@ -29,8 +29,6 @@ MESSAGE_NAME_BY_ID = {
     mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE_QUATERNION: "ATTITUDE_QUATERNION",
     mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED: "LOCAL_POSITION_NED",
     mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT: "GLOBAL_POSITION_INT",
-    mavutil.mavlink.MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE: "VISION_POSITION_ESTIMATE",
-    mavutil.mavlink.MAVLINK_MSG_ID_ESTIMATOR_STATUS: "ESTIMATOR_STATUS",
 }
 
 
@@ -775,6 +773,7 @@ def send_local_ned_setpoint(
 def now_ms(t0):
     return (time.time() - t0) * 1000.0
 
+
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     """
     Build and parse CLI arguments for the waypoint follower.
@@ -905,8 +904,6 @@ def main(argv: Optional[List[str]] = None):
         telemetry_msg_ids.extend(
             [
                 mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT,
-                mavutil.mavlink.MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE,
-                mavutil.mavlink.MAVLINK_MSG_ID_ESTIMATOR_STATUS,
             ]
         )
 
@@ -951,9 +948,7 @@ def main(argv: Optional[List[str]] = None):
 
     log_dir = Path("logs")
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = (
-        log_dir / f"path_follow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    )
+    log_path = log_dir / f"path_follow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     log_file = log_path.open("w", newline="")
     log_writer = csv.writer(log_file)
     log_writer.writerow(
@@ -1009,12 +1004,8 @@ def main(argv: Optional[List[str]] = None):
                 msg_type = incoming.get_type()
 
                 if msg_type == "LOCAL_POSITION_NED":
-                    latest_local_pos = LocalNED(
-                        incoming.x, incoming.y, incoming.z
-                    )
-                    latest_local_vel = LocalNED(
-                        incoming.vx, incoming.vy, incoming.vz
-                    )
+                    latest_local_pos = LocalNED(incoming.x, incoming.y, incoming.z)
+                    latest_local_vel = LocalNED(incoming.vx, incoming.vy, incoming.vz)
                 elif msg_type == "ATTITUDE":
                     latest_yaw_deg = math.degrees(incoming.yaw)
                     latest_yaw_source = "ATTITUDE"
