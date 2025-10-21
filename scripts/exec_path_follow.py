@@ -11,14 +11,78 @@ Run command: python px4_waypoint_follow.py --conn udpin:0.0.0.0:14550 --duration
 """
 
 import argparse
+import csv
 import math
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Tuple, Optional, List, Union
+
 import numpy as np
 
 from pymavlink import mavutil
+
+MESSAGE_NAME_BY_ID = {
+    mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE: "ATTITUDE",
+    mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE_QUATERNION: "ATTITUDE_QUATERNION",
+    mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED: "LOCAL_POSITION_NED",
+    mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT: "GLOBAL_POSITION_INT",
+    mavutil.mavlink.MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE: "VISION_POSITION_ESTIMATE",
+    mavutil.mavlink.MAVLINK_MSG_ID_ESTIMATOR_STATUS: "ESTIMATOR_STATUS",
+}
+
+
+def configure_high_rate_telemetry(
+    master: mavutil.mavlink_connection,
+    rate_hz: float = 50.0,
+    message_ids: Optional[List[int]] = None,
+) -> None:
+    """
+    Request higher-rate telemetry streams for key state estimates (attitude, position, velocity).
+    PX4 honors MAV_CMD_SET_MESSAGE_INTERVAL for individual message IDs.
+    """
+    if rate_hz <= 0.0:
+        raise ValueError("rate_hz must be positive")
+
+    interval_us = int(1_000_000 / rate_hz)
+    if message_ids is None:
+        message_ids = [
+            mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE,
+            mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE_QUATERNION,
+            mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED,
+            mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT,
+        ]
+
+    for msg_id in message_ids:
+        try:
+            master.mav.command_long_send(
+                master.target_system,
+                master.target_component,
+                mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                0,
+                msg_id,
+                interval_us,
+                0,
+                0,
+                0,
+                0,
+                0,
+            )
+            # Opportunistically drain a COMMAND_ACK if one is queued for this request.
+            ack = master.recv_match(type="COMMAND_ACK", blocking=False)
+            if (
+                ack
+                and ack.command == mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL
+                and ack.result != mavutil.mavlink.MAV_RESULT_ACCEPTED
+            ):
+                name = MESSAGE_NAME_BY_ID.get(msg_id, f"id {msg_id}")
+                print(
+                    f"[WARN] Interval request for {name} rejected (result {ack.result})."
+                )
+        except Exception as exc:  # pragma: no cover
+            print(f"[WARN] Failed to request {msg_id} interval: {exc}")
 
 
 @dataclass
@@ -34,6 +98,16 @@ class PlanState:
     yaw_deg: float  # Heading in degrees
     vel: float
     t: float
+
+
+def _yaw_from_quaternion(q1: float, q2: float, q3: float, q4: float) -> float:
+    """
+    Convert MAVLink ATTITUDE_QUATERNION (w, x, y, z) into yaw in degrees.
+    """
+    # q1=w, q2=x, q3=y, q4=z
+    siny_cosp = 2.0 * (q1 * q4 + q2 * q3)
+    cosy_cosp = 1.0 - 2.0 * (q3 * q3 + q4 * q4)
+    return math.degrees(math.atan2(siny_cosp, cosy_cosp))
 
 
 # ----------------------------
@@ -375,6 +449,11 @@ def circle_profile(t, r=1.0, w=0.25):
     return dx, dy, vx, vy
 
 
+def _wrap_deg(a: float) -> float:
+    # (-180, 180]
+    return (a + 180.0) % 360.0 - 180.0
+
+
 def generate_zigzag_vertices(
     anchor: LocalNED,
     heading_deg: float,
@@ -385,48 +464,44 @@ def generate_zigzag_vertices(
     start_with_positive_offset: bool = True,
 ) -> List[PlanState]:
     """
-    Build LOCAL_NED zig-zag vertices.
+    Build LOCAL_NED zig-zag vertices around a fixed reference heading.
 
-    Args:
-        anchor_x, anchor_y, anchor_z: starting point in LOCAL_NED (use current LOCAL_POSITION_NED).
-        heading_rad: reference direction (degrees, 0 = North, +pi/2 = East).
-        segment_length_m: length of each straight segment [m].
-        num_segments: number of linear segments to produce (N).
-        offset_angle_deg: angle of zig-zag segments as a +/- offset from reference heading
-        include_start: if True, first vertex is the anchor position.
-        speed_ms: Desired constant speed, m/s
-        start_with_positive_offset: if True, first segment uses +45° (CCW) from heading,
-                                    otherwise uses -45° (CW). Segments then alternate.
+    Geometry (with ref heading h, offset φ):
+      along_step = L * cos(φ)         (advance on the reference centerline each segment)
+      lateral    = L * sin(φ)         (perpendicular offset magnitude; sign alternates)
+      vertex_k   = anchor + (k * along_step) * ref_dir  +  s_k * lateral * ref_perp
+                   where s_k ∈ {+1, -1} alternates each segment
 
-    Returns:
-        List of LocalNED vertices. If include_start=True, len = num_segments + 1, else len = num_segments.
-        Each consecutive pair of vertices forms one segment.
+    LOCAL_NED axes: x=N, y=E, z=DOWN (z held constant)
     """
-    if num_segments <= 0 or segment_length_m <= 0:
-        print(
-            "Error in zigzag definition, num_segments and segment_lengths must be positive."
-        )
+    if num_segments <= 0 or segment_length_m <= 0 or speed_ms <= 0:
+        print("invalid inputs: num_segments, segment_length_m, speed_ms must be > 0")
         return []
 
-    verts: List[Tuple[float, float, float]] = []
-    x, y, z = anchor.x, anchor.y, anchor.z
-    t = 0
+    # Reference heading and offset in radians
+    h = math.radians(heading_deg)
+    phi = math.radians(offset_angle_deg)
 
-    # Precompute the two alternating headings: ref ± offset_angle
-    h_plus = np.deg2rad(heading_deg + offset_angle_deg)
-    h_minus = np.deg2rad(heading_deg - offset_angle_deg)
+    # timing (constant speed)
+    seg_dt = segment_length_m / speed_ms
 
-    use_plus = start_with_positive_offset
+    # Build vertices, starting with current location at t=0
+    verts: List[PlanState] = [PlanState(anchor, heading_deg, speed_ms, t=0)]
+    t = 0.0
+    px, py, pz = anchor.x, anchor.y, anchor.z
+    sign = 1 if start_with_positive_offset else -1
 
     for _ in range(num_segments):
-        h = h_plus if use_plus else h_minus
-        # LOCAL_NED: x=N, y=E
-        x += segment_length_m * math.cos(h)
-        y += segment_length_m * math.sin(h)
-        # z stays constant (keep current altitude)
-        t += segment_length_m / speed_ms
-        verts.append((PlanState(LocalNED(x, y, z), np.rad2deg(h), speed_ms, t)))
-        use_plus = not use_plus
+        # Advance along the current offset heading
+        seg_heading_rad = h + (phi * sign)
+        px += segment_length_m * math.cos(seg_heading_rad)
+        py += segment_length_m * math.sin(seg_heading_rad)
+
+        seg_heading_deg = _wrap_deg(math.degrees(seg_heading_rad))
+
+        t += seg_dt
+        verts.append(PlanState(LocalNED(px, py, pz), seg_heading_deg, speed_ms, t))
+        sign *= -1
 
     return verts
 
@@ -700,7 +775,6 @@ def send_local_ned_setpoint(
 def now_ms(t0):
     return (time.time() - t0) * 1000.0
 
-
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     """
     Build and parse CLI arguments for the waypoint follower.
@@ -715,20 +789,20 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument("--baud", type=int, default=921600, help="Baudrate for serial")
     ap.add_argument(
-        "--duration",
-        type=float,
-        default=60.0,
-        help="Duration (s) to run offboard/guided control",
-    )
-    ap.add_argument(
         "--rate_hz", type=float, default=25.0, help="Setpoint stream rate (Hz)"
     )
-    # ap.add_argument(
-    #     "--radius_m", type=float, default=25.0, help="Radius for circle profile (m)"
-    # )
-    # ap.add_argument(
-    #     "--omega", type=float, default=0.1, help="Angular rate for circle (rad/s)"
-    # )
+    ap.add_argument(
+        "--heading_deg",
+        type=float,
+        default=0.0,
+        help="Reference heading for trajectory (deg)",
+    )
+    ap.add_argument(
+        "--speed_ms",
+        type=float,
+        default=5.0,
+        help="Reference speed for trajectory (m/s)",
+    )
     return ap.parse_args(argv)
 
 
@@ -751,18 +825,14 @@ def setup_mode_change(
         use_yaw_rate=False,
     )
     dt = 1.0 / rate_hz
-    prestream_time = 1.5  # seconds
+    prestream_time = 0.5  # seconds
     while (time.time() - t0) < prestream_time:
-        t = time.time() - t0
-        dx, dy, vx, vy = circle_profile(
-            t, r=0.0, w=0.0
-        )  # zero motion while pre-streaming
         send_local_ned_setpoint(
             master,
             t_boot_ms=now_ms(t0),
-            x=anchor.x + dx,
-            y=anchor.y + dy,
-            z=anchor.z,  # hold altitude (remember: NED z is down)
+            x=anchor.x,
+            y=anchor.y,
+            z=anchor.z,
             vx=0.0,
             vy=0.0,
             vz=0.0,
@@ -786,7 +856,7 @@ def setup_mode_change(
         )
         # Give the pilot a moment to switch while we keep streaming setpoints
         t_wait = time.time()
-        while time.time() - t_wait < 5.0:
+        while time.time() - t_wait < 0.5:
             # keep sending stationary setpoints so PX4 can accept OFFBOARD when switched
             send_local_ned_setpoint(
                 master,
@@ -826,6 +896,22 @@ def main(argv: Optional[List[str]] = None):
         f"[INFO] Heartbeat OK. Autopilot: {autopilot} (PX4={mavutil.mavlink.MAV_AUTOPILOT_PX4}, Ardu={mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA})"
     )
 
+    telemetry_msg_ids = [
+        mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE,
+        mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE_QUATERNION,
+        mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED,
+    ]
+    if autopilot != mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA:
+        telemetry_msg_ids.extend(
+            [
+                mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT,
+                mavutil.mavlink.MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE,
+                mavutil.mavlink.MAVLINK_MSG_ID_ESTIMATOR_STATUS,
+            ]
+        )
+
+    configure_high_rate_telemetry(master, rate_hz=50.0, message_ids=telemetry_msg_ids)
+
     # Ensure we have local position
     lp = wait_local_position(master, timeout=10.0)
     anchor = LocalNED(lp.x, lp.y, lp.z)
@@ -842,17 +928,14 @@ def main(argv: Optional[List[str]] = None):
     )
 
     # ------------------------ Generate reference trajectories ---------------
-    des_yaw_deg = 120  # TODO - make an arg
-    des_speed_m_s = 3
-
     # Zigzag
     zigzag_traj = generate_zigzag_vertices(
         anchor=anchor,
-        heading_deg=des_yaw_deg,
+        heading_deg=args.heading_deg,
         segment_length_m=40,
-        num_segments=10,
+        num_segments=8,
         offset_angle_deg=45,
-        speed_ms=des_speed_m_s,
+        speed_ms=args.speed_ms,
     )
     vel_smoother_config = VelocitySmootherConfig(
         tau_v_xy=0.2,
@@ -860,83 +943,211 @@ def main(argv: Optional[List[str]] = None):
         v_max_xy=15,
         v_max_up=4,
         v_max_down=4,
-        a_max_xy=3.5,
+        a_max_xy=5.0,
         a_max_up=2.5,
         a_max_down=2.0,
     )
     vel_smoother = VelocitySmoother(vel_smoother_config)
 
-    # ------------------------ Main control loop -----------------------------
-    print(
-        f"[INFO] Executing local NED mixed pos+vel profile for {args.duration:.1f}s …"
+    log_dir = Path("logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = (
+        log_dir / f"path_follow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     )
+    log_file = log_path.open("w", newline="")
+    log_writer = csv.writer(log_file)
+    log_writer.writerow(
+        [
+            "t_s",
+            "plan_x",
+            "plan_y",
+            "plan_z",
+            "plan_yaw_deg",
+            "plan_speed_ms",
+            "feedforward_vx",
+            "feedforward_vy",
+            "feedforward_vz",
+            "smoothed_vx",
+            "smoothed_vy",
+            "smoothed_vz",
+            "actual_x",
+            "actual_y",
+            "actual_z",
+            "actual_vx",
+            "actual_vy",
+            "actual_vz",
+            "actual_yaw_deg",
+            "actual_yaw_source",
+            "actual_yaw_age_s",
+        ]
+    )
+
+    # ------------------------ Main control loop -----------------------------
+    print("[INFO] Executing local NED mixed pos+vel profile")
     t_start = time.time()
-    while (time.time() - t_start) < args.duration:
-        t = time.time() - t_start
+    t_total = zigzag_traj[-1].t
+    latest_local_pos = anchor
+    latest_local_vel = LocalNED(0.0, 0.0, 0.0)
+    latest_yaw_deg = float("nan")
+    latest_yaw_source = ""
+    last_yaw_update_s: Optional[float] = None
+    yaw_warning_emitted = False
+    attitude_msg_count = 0
+    attitude_quat_msg_count = 0
+    vfr_hud_msg_count = 0
 
-        # Get position along the planned trajectory for point t
-        # # Case 1: Circle profile, no smoothing
-        # dx, dy, vx, vy = circle_profile(t, r=25.0, w=0.1)
-        # x, y, z = anchor.x + dx, anchor.y + dy, anchor.z
-        # yaw_rad = 0.0
-        # vx, vy, vz = 0.0, 0.0, 0.0
+    try:
+        while (time.time() - t_start) < t_total:
+            t = time.time() - t_start
 
-        # Case 2: Sparse zig-zag trajectory with smoothing + limits
-        looahead_s = 0.5
-        interp_plan_state = interpolate_plan_state(zigzag_traj, t)
-        vel_plan = compute_lookahead_velocity(
-            zigzag_traj, anchor, ts=t + looahead_s, now_s=t
-        )
-        vel_smooth = vel_smoother.smooth(v_desired=vel_plan)
-        pos = interp_plan_state.pos
-        x, y, z = pos.x, pos.y, pos.z
-        yaw_rad = np.deg2rad(interp_plan_state.yaw_deg)
-        vx, vy, vz = vel_smooth.x, vel_smooth.y, vel_smooth.z
+            # Drain all pending MAVLink messages and update state caches.
+            while True:
+                incoming = master.recv_match(blocking=False)
+                if incoming is None:
+                    break
 
-        # Case 3: Sinusoidal trajectory tracking with smoothing + limits
-        # TODO
+                msg_type = incoming.get_type()
 
-        # Generate control output via mavlink
+                if msg_type == "LOCAL_POSITION_NED":
+                    latest_local_pos = LocalNED(
+                        incoming.x, incoming.y, incoming.z
+                    )
+                    latest_local_vel = LocalNED(
+                        incoming.vx, incoming.vy, incoming.vz
+                    )
+                elif msg_type == "ATTITUDE":
+                    latest_yaw_deg = math.degrees(incoming.yaw)
+                    latest_yaw_source = "ATTITUDE"
+                    last_yaw_update_s = t
+                    attitude_msg_count += 1
+                elif msg_type == "ATTITUDE_QUATERNION":
+                    latest_yaw_deg = _yaw_from_quaternion(
+                        incoming.q1, incoming.q2, incoming.q3, incoming.q4
+                    )
+                    latest_yaw_source = "ATTITUDE_QUAT"
+                    last_yaw_update_s = t
+                    attitude_quat_msg_count += 1
+                elif msg_type == "VFR_HUD":
+                    # Heading is 0-360 deg; convert to [-180, 180).
+                    heading = math.remainder(incoming.heading, 360.0)
+                    latest_yaw_deg = heading
+                    latest_yaw_source = "VFR_HUD"
+                    last_yaw_update_s = t
+                    vfr_hud_msg_count += 1
+                elif msg_type == "COMMAND_ACK":
+                    # Surface unexpected denials during runtime.
+                    if incoming.result != mavutil.mavlink.MAV_RESULT_ACCEPTED:
+                        print(
+                            f"[WARN] Runtime COMMAND_ACK for command {incoming.command} returned result {incoming.result}"
+                        )
 
-        send_local_ned_setpoint(
-            master,
-            t_boot_ms=now_ms(t0),
-            x=x,
-            y=y,
-            z=z,
-            vx=vx,
-            vy=vy,
-            vz=vz,
-            yaw=yaw_rad,
-            yaw_rate=0.0,
-            frame=mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-            type_mask=type_mask,
-        )
-        time.sleep(dt)
+            if last_yaw_update_s is None:
+                if not yaw_warning_emitted and t > 1.5:
+                    print(
+                        "[WARN] No ATTITUDE/ATTITUDE_QUATERNION messages received yet; yaw remains unavailable."
+                    )
+                    yaw_warning_emitted = True
+            else:
+                if (t - last_yaw_update_s) > 1.5:
+                    if not yaw_warning_emitted:
+                        print(
+                            "[WARN] Stale attitude telemetry (>1.5 s old); check MAVLink stream rates."
+                        )
+                        yaw_warning_emitted = True
+                elif yaw_warning_emitted:
+                    print("[INFO] Attitude telemetry recovered.")
+                    yaw_warning_emitted = False
 
-    print("[INFO] Attempting to return to Pause/Hold …")
-    hold_ok = try_enter_hold_or_loiter(master, autopilot)
-    if not hold_ok:
-        print(
-            "[WARN] Could not auto-switch to a Pause/Hold mode. Releasing control by stopping setpoints."
-        )
-        # Send a few zero-velocity, current-position setpoints, then stop.
-        for _ in range(int(1.0 / dt)):
+            yaw_age = (
+                (t - last_yaw_update_s) if last_yaw_update_s is not None else math.inf
+            )
+
+            # Case 2: Sparse zig-zag trajectory with smoothing + limits
+            looahead_s = 0.0
+            interp_plan_state = interpolate_plan_state(zigzag_traj, t)
+            vel_plan = compute_lookahead_velocity(
+                zigzag_traj, latest_local_pos, ts=t + looahead_s, now_s=t
+            )
+
+            vel_smooth = vel_smoother.smooth(v_desired=vel_plan)
+            pos = interp_plan_state.pos
+            x, y, z = pos.x, pos.y, pos.z
+            yaw_rad = np.deg2rad(interp_plan_state.yaw_deg)
+            vx, vy, vz = vel_smooth.x, vel_smooth.y, vel_smooth.z
+
+            log_writer.writerow(
+                [
+                    t,
+                    pos.x,
+                    pos.y,
+                    pos.z,
+                    interp_plan_state.yaw_deg,
+                    interp_plan_state.vel,
+                    vel_plan.x,
+                    vel_plan.y,
+                    vel_plan.z,
+                    vel_smooth.x,
+                    vel_smooth.y,
+                    vel_smooth.z,
+                    latest_local_pos.x,
+                    latest_local_pos.y,
+                    latest_local_pos.z,
+                    latest_local_vel.x,
+                    latest_local_vel.y,
+                    latest_local_vel.z,
+                    latest_yaw_deg,
+                    latest_yaw_source,
+                    yaw_age,
+                ]
+            )
+            log_file.flush()
+
+            # Generate control output via mavlink
             send_local_ned_setpoint(
                 master,
                 t_boot_ms=now_ms(t0),
-                x=anchor.x,
-                y=anchor.y,
-                z=anchor.z,
-                vx=0.0,
-                vy=0.0,
-                vz=0.0,
-                yaw=0.0,
+                x=x,
+                y=y,
+                z=z,
+                vx=vx,
+                vy=vy,
+                vz=vz,
+                yaw=yaw_rad,
                 yaw_rate=0.0,
                 frame=mavutil.mavlink.MAV_FRAME_LOCAL_NED,
                 type_mask=type_mask,
             )
             time.sleep(dt)
+
+        print("[INFO] Attempting to return to Pause/Hold …")
+        hold_ok = try_enter_hold_or_loiter(master, autopilot)
+        if not hold_ok:
+            print(
+                "[WARN] Could not auto-switch to a Pause/Hold mode. Releasing control by stopping setpoints."
+            )
+            # Send a few zero-velocity, current-position setpoints, then stop.
+            for _ in range(int(1.0 / dt)):
+                send_local_ned_setpoint(
+                    master,
+                    t_boot_ms=now_ms(t0),
+                    x=anchor.x,
+                    y=anchor.y,
+                    z=anchor.z,
+                    vx=vx,
+                    vy=vy,
+                    vz=vz,
+                    yaw=0.0,
+                    yaw_rate=0.0,
+                    frame=mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                    type_mask=type_mask,
+                )
+                time.sleep(dt)
+    finally:
+        log_file.close()
+        print(f"[INFO] Logged flight data to {log_path}")
+        print(
+            f"[INFO] Attitude message counts - ATTITUDE: {attitude_msg_count}, ATTITUDE_QUAT: {attitude_quat_msg_count}, VFR_HUD: {vfr_hud_msg_count}"
+        )
 
     print("[INFO] Control complete. Pilot may take back control and land manually.")
     master.close()
