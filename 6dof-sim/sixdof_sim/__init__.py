@@ -1,4 +1,4 @@
-"""Lightweight 6DOF flight dynamics simulator."""
+"""Lightweight 6DOF quadrotor flight dynamics simulator."""
 from .states import SixDofState
 from .parameters import (
     VehicleParameters,

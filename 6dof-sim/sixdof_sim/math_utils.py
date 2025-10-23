@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 
 def normalize_vector(v: np.ndarray, eps: float = 1e-9) -> np.ndarray:
@@ -24,6 +25,33 @@ def skew(vec: np.ndarray) -> np.ndarray:
     )
 
 
+def _ensure_quat_array(q: np.ndarray) -> np.ndarray:
+    return np.asarray(q, dtype=float).reshape(4)
+
+
+def _quat_wxyz_to_xyzw(q: np.ndarray) -> np.ndarray:
+    # Project convention lists scalar-first (w, x, y, z) to match ArduPilot / common aerospace tools,
+    # while SciPy expects scalar-last (x, y, z, w).
+    q = _ensure_quat_array(q)
+    return np.array([q[1], q[2], q[3], q[0]], dtype=float)
+
+
+def _quat_xyzw_to_wxyz(q: np.ndarray) -> np.ndarray:
+    # Helper to bring SciPy's [x, y, z, w] output back to the project convention.
+    q = _ensure_quat_array(q)
+    return np.array([q[3], q[0], q[1], q[2]], dtype=float)
+
+
+def _rotation_from_wxyz(q: np.ndarray) -> R:
+    # ensure every SciPy Rotation sees normalized XYZW quaternions.
+    return R.from_quat(_quat_wxyz_to_xyzw(quat_normalize(_ensure_quat_array(q))))
+
+
+def _quat_wxyz_from_rotation(rotation: R) -> np.ndarray:
+    # Normalize the result so downstream consumers always get unit quaternions in WXYZ order.
+    return quat_normalize(_quat_xyzw_to_wxyz(rotation.as_quat()))
+
+
 def quat_normalize(q: np.ndarray) -> np.ndarray:
     return normalize_vector(q)
 
@@ -33,95 +61,40 @@ def quat_conjugate(q: np.ndarray) -> np.ndarray:
 
 
 def quat_multiply(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    return np.array(
-        [
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ]
-    )
+    rotation = _rotation_from_wxyz(q1) * _rotation_from_wxyz(q2)
+    return _quat_wxyz_from_rotation(rotation)
 
 
 def quat_to_rotation_matrix(q: np.ndarray) -> np.ndarray:
-    q = quat_normalize(q)
-    w, x, y, z = q
-    return np.array(
-        [
-            [1 - 2 * (y**2 + z**2), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-            [2 * (x * y + w * z), 1 - 2 * (x**2 + z**2), 2 * (y * z - w * x)],
-            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x**2 + y**2)],
-        ]
-    )
+    return _rotation_from_wxyz(q).as_matrix()
 
 
 def rotation_matrix_to_quat(r: np.ndarray) -> np.ndarray:
-    trace = np.trace(r)
-    if trace > 0.0:
-        s = np.sqrt(trace + 1.0) * 2.0
-        w = 0.25 * s
-        x = (r[2, 1] - r[1, 2]) / s
-        y = (r[0, 2] - r[2, 0]) / s
-        z = (r[1, 0] - r[0, 1]) / s
-    elif r[0, 0] > r[1, 1] and r[0, 0] > r[2, 2]:
-        s = np.sqrt(1.0 + r[0, 0] - r[1, 1] - r[2, 2]) * 2.0
-        w = (r[2, 1] - r[1, 2]) / s
-        x = 0.25 * s
-        y = (r[0, 1] + r[1, 0]) / s
-        z = (r[0, 2] + r[2, 0]) / s
-    elif r[1, 1] > r[2, 2]:
-        s = np.sqrt(1.0 + r[1, 1] - r[0, 0] - r[2, 2]) * 2.0
-        w = (r[0, 2] - r[2, 0]) / s
-        x = (r[0, 1] + r[1, 0]) / s
-        y = 0.25 * s
-        z = (r[1, 2] + r[2, 1]) / s
-    else:
-        s = np.sqrt(1.0 + r[2, 2] - r[0, 0] - r[1, 1]) * 2.0
-        w = (r[1, 0] - r[0, 1]) / s
-        x = (r[0, 2] + r[2, 0]) / s
-        y = (r[1, 2] + r[2, 1]) / s
-        z = 0.25 * s
-    return quat_normalize(np.array([w, x, y, z]))
+    return _quat_wxyz_from_rotation(R.from_matrix(r))
 
 
 def quat_from_axis_angle(axis: np.ndarray, angle: float) -> np.ndarray:
     axis = normalize_vector(axis)
-    half = angle * 0.5
-    s = np.sin(half)
-    return np.array([np.cos(half), axis[0] * s, axis[1] * s, axis[2] * s])
+    return _quat_wxyz_from_rotation(R.from_rotvec(axis * angle))
 
 
 def quat_to_euler(q: np.ndarray) -> np.ndarray:
-    w, x, y, z = quat_normalize(q)
-    roll = np.arctan2(2 * (w * x + y * z), 1 - 2 * (x**2 + y**2))
-    sinp = 2 * (w * y - z * x)
-    if abs(sinp) >= 1.0:
-        pitch = np.sign(sinp) * (np.pi / 2)
-    else:
-        pitch = np.arcsin(sinp)
-    yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y**2 + z**2))
-    return np.array([roll, pitch, yaw])
+    return _rotation_from_wxyz(q).as_euler("xyz")
 
 
 def integrate_quaternion(q: np.ndarray, omega_body: np.ndarray, dt: float) -> np.ndarray:
-    omega_norm = np.linalg.norm(omega_body)
-    if omega_norm < 1e-12:
-        delta = np.array([1.0, 0.5 * omega_body[0] * dt, 0.5 * omega_body[1] * dt, 0.5 * omega_body[2] * dt])
-    else:
-        axis = omega_body / omega_norm
-        angle = omega_norm * dt
-        delta = quat_from_axis_angle(axis, angle)
-    return quat_normalize(quat_multiply(q, delta))
+    delta_rotation = R.from_rotvec(np.asarray(omega_body, dtype=float) * dt)
+    updated_rotation = _rotation_from_wxyz(q) * delta_rotation
+    return _quat_wxyz_from_rotation(updated_rotation)
 
 
 def quaternion_error(q_target: np.ndarray, q_current: np.ndarray) -> np.ndarray:
-    q_err = quat_multiply(q_target, quat_conjugate(q_current))
+    rotation_error = _rotation_from_wxyz(q_target) * _rotation_from_wxyz(q_current).inv()
+    q_err = _quat_wxyz_from_rotation(rotation_error)
     if q_err[0] < 0.0:
         q_err *= -1.0
     return q_err
 
 
 def quaternion_error_to_rotation_vector(q_err: np.ndarray) -> np.ndarray:
-    return 2.0 * q_err[1:]
+    return R.from_quat(_quat_wxyz_to_xyzw(quat_normalize(q_err))).as_rotvec()
