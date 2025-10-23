@@ -11,7 +11,7 @@ from .parameters import (
     ActuatorParameters,
 )
 from .commands import PositionVelocityCommand
-from .offboard_control import (
+from offboard_control import (
     PathFollowerConfig,
     PathFollowerDebug,
     PathFollowerError,
