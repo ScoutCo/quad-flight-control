@@ -34,6 +34,7 @@ python 6dof-sim/examples/basic_sim.py
 The script runs a 10 s hover command and prints the final state and actuator outputs. Adjust the command callback to inject different trajectories or wind disturbances via `EnvironmentParameters`.
 
 ## Next Steps
+- Integrate onboard path-following controller & test against generated trajectories
 - Derive vehicle parameters from actual hardware or ArduPilot logs.
 - Add wind gust models or time-varying disturbance callbacks.
 - Hook the simulator to live MAVLink setpoint streams for software-in-the-loop testing.

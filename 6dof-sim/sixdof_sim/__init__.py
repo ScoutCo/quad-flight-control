@@ -11,6 +11,17 @@ from .parameters import (
     ActuatorParameters,
 )
 from .commands import PositionVelocityCommand
+from .offboard_control import (
+    PathFollowerConfig,
+    PathFollowerDebug,
+    PathFollowerError,
+    PathFollowerException,
+    PathFollowerResult,
+    Plan,
+    PlanState,
+    PositionVelocityPathFollower,
+    VelocitySmoother,
+)
 from .simulator import SixDofSimulator
 
 __all__ = [
@@ -24,5 +35,14 @@ __all__ = [
     "EnvironmentParameters",
     "ActuatorParameters",
     "PositionVelocityCommand",
+    "PathFollowerConfig",
+    "PathFollowerDebug",
+    "PathFollowerError",
+    "PathFollowerException",
+    "PathFollowerResult",
+    "Plan",
+    "PlanState",
+    "PositionVelocityPathFollower",
+    "VelocitySmoother",
     "SixDofSimulator",
 ]
