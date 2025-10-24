@@ -30,7 +30,7 @@ class SimulationStep:
 
 
 class Simulator:
-    """A low-complexity simulator that filters position/velocity commands."""
+    """First-order filtered position/velocity tracker with simple attitude dynamics."""
 
     def __init__(self, config: SimulatorConfig | None = None) -> None:
         self._config = config or SimulatorConfig()
@@ -46,16 +46,24 @@ class Simulator:
         self._accel_ned[:] = 0.0
         self._target_yaw = _yaw_from_quaternion(self.state.quaternion_bn)
 
-    def step(self, command: PositionVelocityCommand, dt: float | None = None) -> SimulationStep:
+    def step(
+        self, command: PositionVelocityCommand, dt: float | None = None
+    ) -> SimulationStep:
         dt = float(dt if dt is not None else self.dt)
         if dt <= 0.0:
             raise ValueError("dt must be positive")
 
-        pos_err = np.asarray(command.position_ned, dtype=float) - self.state.position_ned
+        # Blend position feedforward/feedback into a bounded velocity target.
+        pos_err = (
+            np.asarray(command.position_ned, dtype=float) - self.state.position_ned
+        )
         vel_ff = np.asarray(command.velocity_ned_ff, dtype=float)
         desired_velocity = vel_ff + self._config.position_gain * pos_err
-        desired_velocity = _limit_vector_norm(desired_velocity, self._config.max_speed_m_s)
+        desired_velocity = _limit_vector_norm(
+            desired_velocity, self._config.max_speed_m_s
+        )
 
+        # Close the velocity loop and constrain the commanded acceleration.
         vel_err = desired_velocity - self.state.velocity_ned
         accel_cmd = (
             np.asarray(command.accel_ned_ff, dtype=float)
@@ -63,17 +71,20 @@ class Simulator:
         )
         accel_cmd = _limit_acceleration(accel_cmd, self._config)
 
+        # First-order acceleration filter emulating actuator/inner loop lag.
         tau_acc = max(self._config.accel_time_constant, 1e-3)
         alpha_acc = dt / (tau_acc + dt)
         self._accel_ned += alpha_acc * (accel_cmd - self._accel_ned)
         self._accel_ned = _limit_acceleration(self._accel_ned, self._config)
 
+        # Integrate translational state with the filtered acceleration.
         self.state.velocity_ned += self._accel_ned * dt
         self.state.position_ned += self.state.velocity_ned * dt
 
         if command.yaw_heading is not None:
             self._target_yaw = float(command.yaw_heading)
 
+        # Compute attitude tracking target from net thrust direction + yaw.
         desired_quat = _compute_desired_attitude(
             self._accel_ned, self._target_yaw, self._config
         )
@@ -82,6 +93,7 @@ class Simulator:
         q_err = quaternion_error(desired_quat, q_current)
         rot_vec = quaternion_error_to_rotation_vector(q_err)
 
+        # Apply first-order rate/attitude dynamics before integrating quaternion.
         tau_att = max(self._config.attitude_time_constant, 1e-3)
         omega_target = rot_vec / tau_att
         tau_rate = max(self._config.attitude_rate_time_constant, 1e-3)
@@ -149,7 +161,14 @@ def _compute_desired_attitude(
 
     y_body = np.cross(thrust_dir, x_ref)
     if np.linalg.norm(y_body) < 1e-6:
-        x_ref = np.array([math.cos(yaw_target + math.pi / 2.0), math.sin(yaw_target + math.pi / 2.0), 0.0], dtype=float)
+        x_ref = np.array(
+            [
+                math.cos(yaw_target + math.pi / 2.0),
+                math.sin(yaw_target + math.pi / 2.0),
+                0.0,
+            ],
+            dtype=float,
+        )
         y_body = np.cross(thrust_dir, x_ref)
     y_body = normalize_vector(y_body)
     x_body = np.cross(y_body, thrust_dir)
@@ -176,7 +195,9 @@ def _limit_acceleration(accel: np.ndarray, config: SimulatorConfig) -> np.ndarra
     limited = accel.copy()
     limited[:2] = horiz
     limited[2] = float(
-        np.clip(limited[2], -config.max_vertical_accel_m_s2, config.max_vertical_accel_m_s2)
+        np.clip(
+            limited[2], -config.max_vertical_accel_m_s2, config.max_vertical_accel_m_s2
+        )
     )
     if config.max_accel_m_s2 > 0.0:
         limited = _limit_vector_norm(limited, config.max_accel_m_s2)
