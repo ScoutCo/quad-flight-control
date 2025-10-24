@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Sequence
 
 import numpy as np
 
@@ -103,5 +103,87 @@ def line_trajectory(
 
     def yaw(_: float) -> float:
         return float(heading_rad)
+
+    return Trajectory(position=position, velocity=velocity, yaw=yaw)
+
+
+def zigzag_trajectory(
+    *,
+    anchor_ned: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
+    heading_deg: float = 0.0,
+    segment_length_m: float = 40.0,
+    num_segments: int = 8,
+    offset_angle_deg: float = 45.0,
+    speed_m_s: float = 5.0,
+    start_with_positive_offset: bool = True,
+) -> Trajectory:
+    if num_segments <= 0:
+        raise ValueError("num_segments must be positive")
+    if segment_length_m <= 0.0:
+        raise ValueError("segment_length_m must be positive")
+    if speed_m_s <= 0.0:
+        raise ValueError("speed_m_s must be positive")
+
+    anchor = np.asarray(anchor_ned, dtype=float)
+    if anchor.shape != (3,):
+        raise ValueError("anchor_ned must be length-3")
+
+    heading_rad = math.radians(heading_deg)
+    offset_rad = math.radians(offset_angle_deg)
+    seg_dt = segment_length_m / speed_m_s
+    total_duration_s = num_segments * seg_dt
+
+    vertices = np.empty((num_segments + 1, 3), dtype=float)
+    vertices[0] = anchor
+
+    segment_headings_rad = np.empty(num_segments, dtype=float)
+    segment_unit_vectors = np.empty((num_segments, 3), dtype=float)
+
+    sign = 1.0 if start_with_positive_offset else -1.0
+    for idx in range(num_segments):
+        seg_heading = heading_rad + sign * offset_rad
+        dx = segment_length_m * math.cos(seg_heading)
+        dy = segment_length_m * math.sin(seg_heading)
+        vertices[idx + 1] = vertices[idx] + np.array([dx, dy, 0.0])
+        segment_headings_rad[idx] = seg_heading
+
+        direction = vertices[idx + 1] - vertices[idx]
+        norm = float(np.linalg.norm(direction))
+        if norm <= 0.0:
+            raise ValueError("Generated zig-zag segment has zero length")
+        segment_unit_vectors[idx] = direction / norm
+        sign *= -1.0
+
+    def _segment_index_and_alpha(time_s: float) -> tuple[int, float]:
+        clamped_t = max(0.0, float(time_s))
+        if clamped_t >= total_duration_s:
+            return num_segments - 1, 1.0
+        idx = int(clamped_t / seg_dt)
+        idx = min(idx, num_segments - 1)
+        seg_start_t = idx * seg_dt
+        alpha = (clamped_t - seg_start_t) / seg_dt if seg_dt > 0.0 else 0.0
+        return idx, alpha
+
+    def position(time_s: float) -> np.ndarray:
+        if time_s <= 0.0:
+            return vertices[0].copy()
+        idx, alpha = _segment_index_and_alpha(time_s)
+        if alpha >= 1.0:
+            return vertices[idx + 1].copy()
+        return (1.0 - alpha) * vertices[idx] + alpha * vertices[idx + 1]
+
+    def velocity(time_s: float) -> np.ndarray:
+        if time_s < 0.0 or time_s >= total_duration_s:
+            return np.zeros(3, dtype=float)
+        idx, _ = _segment_index_and_alpha(time_s)
+        return segment_unit_vectors[idx] * speed_m_s
+
+    def yaw(time_s: float) -> float:
+        if time_s < 0.0:
+            return float(math.remainder(heading_rad, 2.0 * math.pi))
+        idx, _ = _segment_index_and_alpha(time_s)
+        if time_s >= total_duration_s:
+            return float(math.remainder(segment_headings_rad[-1], 2.0 * math.pi))
+        return float(math.remainder(segment_headings_rad[idx], 2.0 * math.pi))
 
     return Trajectory(position=position, velocity=velocity, yaw=yaw)

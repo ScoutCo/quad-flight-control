@@ -23,6 +23,7 @@ from typing import Tuple, Optional, List, Union
 import numpy as np
 
 from pymavlink import mavutil
+from examples.trajectories import zigzag_trajectory
 
 MESSAGE_NAME_BY_ID = {
     mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE: "ATTITUDE",
@@ -454,7 +455,7 @@ def _wrap_deg(a: float) -> float:
     return (a + 180.0) % 360.0 - 180.0
 
 
-def generate_zigzag_vertices(
+def _build_zigzag_plan_states(
     anchor: LocalNED,
     heading_deg: float,
     segment_length_m: float,
@@ -463,47 +464,41 @@ def generate_zigzag_vertices(
     speed_ms: float,
     start_with_positive_offset: bool = True,
 ) -> List[PlanState]:
-    """
-    Build LOCAL_NED zig-zag vertices around a fixed reference heading.
-
-    Geometry (with ref heading h, offset φ):
-      along_step = L * cos(φ)         (advance on the reference centerline each segment)
-      lateral    = L * sin(φ)         (perpendicular offset magnitude; sign alternates)
-      vertex_k   = anchor + (k * along_step) * ref_dir  +  s_k * lateral * ref_perp
-                   where s_k ∈ {+1, -1} alternates each segment
-
-    LOCAL_NED axes: x=N, y=E, z=DOWN (z held constant)
-    """
-    if num_segments <= 0 or segment_length_m <= 0 or speed_ms <= 0:
+    if num_segments <= 0 or segment_length_m <= 0.0 or speed_ms <= 0.0:
         print("invalid inputs: num_segments, segment_length_m, speed_ms must be > 0")
         return []
 
-    # Reference heading and offset in radians
-    h = math.radians(heading_deg)
-    phi = math.radians(offset_angle_deg)
+    try:
+        trajectory = zigzag_trajectory(
+            anchor_ned=(anchor.x, anchor.y, anchor.z),
+            heading_deg=heading_deg,
+            segment_length_m=segment_length_m,
+            num_segments=num_segments,
+            offset_angle_deg=offset_angle_deg,
+            speed_m_s=speed_ms,
+            start_with_positive_offset=start_with_positive_offset,
+        )
+    except ValueError as exc:
+        print(f"invalid zig-zag trajectory configuration: {exc}")
+        return []
 
-    # timing (constant speed)
     seg_dt = segment_length_m / speed_ms
+    states: List[PlanState] = []
 
-    # Build vertices, starting with current location at t=0
-    verts: List[PlanState] = [PlanState(anchor, heading_deg, speed_ms, t=0)]
-    t = 0.0
-    px, py, pz = anchor.x, anchor.y, anchor.z
-    sign = 1 if start_with_positive_offset else -1
+    for idx in range(num_segments + 1):
+        t = idx * seg_dt
+        pos_arr = trajectory.position(t)
+        yaw_rad = trajectory.yaw(t)
+        states.append(
+            PlanState(
+                pos=LocalNED(float(pos_arr[0]), float(pos_arr[1]), float(pos_arr[2])),
+                yaw_deg=_wrap_deg(math.degrees(yaw_rad)),
+                vel=speed_ms,
+                t=t,
+            )
+        )
 
-    for _ in range(num_segments):
-        # Advance along the current offset heading
-        seg_heading_rad = h + (phi * sign)
-        px += segment_length_m * math.cos(seg_heading_rad)
-        py += segment_length_m * math.sin(seg_heading_rad)
-
-        seg_heading_deg = _wrap_deg(math.degrees(seg_heading_rad))
-
-        t += seg_dt
-        verts.append(PlanState(LocalNED(px, py, pz), seg_heading_deg, speed_ms, t))
-        sign *= -1
-
-    return verts
+    return states
 
 
 class SinusoidalTrajectory:
@@ -929,7 +924,7 @@ def main(argv: Optional[List[str]] = None):
 
     # ------------------------ Generate reference trajectories ---------------
     # Zigzag
-    zigzag_traj = generate_zigzag_vertices(
+    zigzag_traj = _build_zigzag_plan_states(
         anchor=anchor,
         heading_deg=args.heading_deg,
         segment_length_m=40,
