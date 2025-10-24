@@ -1,4 +1,4 @@
-"""Lightweight example scripts for the simple simulator path follower demos."""
+"""Lightweight example scripts for the simulator path follower demos."""
 
 from .trajectories import Trajectory, circle_trajectory, line_trajectory, sinusoid_trajectory
 from .common import run_path_follower_example

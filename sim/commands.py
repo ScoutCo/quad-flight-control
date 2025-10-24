@@ -6,7 +6,7 @@ import numpy as np
 
 @dataclass
 class PositionVelocityCommand:
-    """Position/velocity/acceleration command passed to the cascaded controller."""
+    """Position/velocity/acceleration command passed to the controller."""
 
     position_ned: np.ndarray = field(default_factory=lambda: np.zeros(3))
     velocity_ned_ff: np.ndarray = field(default_factory=lambda: np.zeros(3))

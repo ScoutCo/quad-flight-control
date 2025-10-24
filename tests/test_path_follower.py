@@ -1,4 +1,4 @@
-"""Integration tests for the path follower using the simplified simulator."""
+"""Integration tests for the path follower using the simulator."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ import sys
 import numpy as np
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from offboard_control.config import PathFollowerConfig
-from offboard_control.path_follower import PositionVelocityPathFollower, PathFollowerException
+from offboard_control.path_follower import PathFollowerException, PositionVelocityPathFollower
 from offboard_control.plan import Plan, PlanState
-from simple_sim import SimpleSimulator, SimpleSimulatorConfig, SimpleTelemetryLogger
+from sim import Simulator, SimulatorConfig, TelemetryLogger
 
 
 def _build_line_plan() -> Plan:
@@ -31,8 +31,8 @@ def _build_line_plan() -> Plan:
 
 def test_path_follower_tracks_plan(tmp_path) -> None:
     dt = 0.02
-    log_path = tmp_path / "simple_follower.csv"
-    sim = SimpleSimulator(SimpleSimulatorConfig(dt=dt))
+    log_path = tmp_path / "sim_follower.csv"
+    sim = Simulator(SimulatorConfig(dt=dt))
     follower = PositionVelocityPathFollower(
         PathFollowerConfig(max_plan_age_s=50.0, lookahead_offset_s=0.5)
     )
@@ -42,7 +42,7 @@ def test_path_follower_tracks_plan(tmp_path) -> None:
     steps = int(duration / dt)
     history_positions = []
 
-    with SimpleTelemetryLogger(log_path) as logger:
+    with TelemetryLogger(log_path) as logger:
         for _ in range(steps):
             command = follower.next_command(sim.time_s).command
             step = sim.step(command, dt=dt)
@@ -70,7 +70,7 @@ def test_path_follower_tracks_plan(tmp_path) -> None:
 
 def test_path_follower_respects_plan_start_time() -> None:
     dt = 0.02
-    sim = SimpleSimulator(SimpleSimulatorConfig(dt=dt))
+    sim = Simulator(SimulatorConfig(dt=dt))
     follower = PositionVelocityPathFollower(
         PathFollowerConfig(max_plan_age_s=50.0, lookahead_offset_s=0.5)
     )

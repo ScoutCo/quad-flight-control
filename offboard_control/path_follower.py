@@ -8,7 +8,7 @@ from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
-from sixdof_sim.commands import PositionVelocityCommand
+from sim import PositionVelocityCommand
 
 from .config import PathFollowerConfig
 from .plan import Plan, PlanState

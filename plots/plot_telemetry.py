@@ -93,10 +93,7 @@ def plot_telemetry(df: pd.DataFrame, output: Path | None) -> None:
         axes[2].set_ylabel("Attitude (deg)")
         axes[2].legend(loc="upper right", fontsize="small")
     else:
-        if "thrust" in df.columns:
-            thrust_series = df["thrust"].to_numpy()
-        else:
-            thrust_series = np.zeros_like(time)
+        thrust_series = df["thrust"].to_numpy() if "thrust" in df.columns else np.zeros_like(time)
         axes[2].plot(time, thrust_series, label="Thrust (N)")
         axes[2].set_ylabel("Thrust (N)")
         axes[2].legend(loc="upper right", fontsize="small")

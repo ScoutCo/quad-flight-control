@@ -6,8 +6,8 @@ from typing import Callable
 
 import numpy as np
 
-from sixdof_sim.commands import PositionVelocityCommand
-from sixdof_sim.math_utils import (
+from .commands import PositionVelocityCommand
+from .math_utils import (
     integrate_quaternion,
     normalize_vector,
     quat_normalize,
@@ -17,36 +17,36 @@ from sixdof_sim.math_utils import (
     rotation_matrix_to_quat,
 )
 
-from .config import SimpleSimulatorConfig
-from .states import SimpleState
+from .config import SimulatorConfig
+from .states import State
 
 
 @dataclass
-class SimpleSimulationStep:
+class SimulationStep:
     time_s: float
-    state: SimpleState
+    state: State
     commanded_accel_ned: np.ndarray
     filtered_accel_ned: np.ndarray
 
 
-class SimpleSimulator:
+class Simulator:
     """A low-complexity simulator that filters position/velocity commands."""
 
-    def __init__(self, config: SimpleSimulatorConfig | None = None) -> None:
-        self._config = config or SimpleSimulatorConfig()
+    def __init__(self, config: SimulatorConfig | None = None) -> None:
+        self._config = config or SimulatorConfig()
         self.dt = float(self._config.dt)
-        self.state = SimpleState()
+        self.state = State()
         self.time_s = 0.0
         self._accel_ned = np.zeros(3, dtype=float)
         self._target_yaw = float(self._config.initial_yaw_rad)
 
-    def reset(self, state: SimpleState | None = None, time_s: float = 0.0) -> None:
-        self.state = state.copy() if state is not None else SimpleState()
+    def reset(self, state: State | None = None, time_s: float = 0.0) -> None:
+        self.state = state.copy() if state is not None else State()
         self.time_s = float(time_s)
         self._accel_ned[:] = 0.0
         self._target_yaw = _yaw_from_quaternion(self.state.quaternion_bn)
 
-    def step(self, command: PositionVelocityCommand, dt: float | None = None) -> SimpleSimulationStep:
+    def step(self, command: PositionVelocityCommand, dt: float | None = None) -> SimulationStep:
         dt = float(dt if dt is not None else self.dt)
         if dt <= 0.0:
             raise ValueError("dt must be positive")
@@ -96,7 +96,7 @@ class SimpleSimulator:
         )
 
         self.time_s += dt
-        return SimpleSimulationStep(
+        return SimulationStep(
             time_s=self.time_s,
             state=self.state.copy(),
             commanded_accel_ned=accel_cmd.copy(),
@@ -106,11 +106,11 @@ class SimpleSimulator:
     def run(
         self,
         final_time_s: float,
-        command_fn: Callable[[float, SimpleState], PositionVelocityCommand],
-        progress_callback: Callable[[SimpleSimulationStep], None] | None = None,
-    ) -> list[SimpleSimulationStep]:
+        command_fn: Callable[[float, State], PositionVelocityCommand],
+        progress_callback: Callable[[SimulationStep], None] | None = None,
+    ) -> list[SimulationStep]:
         steps = int(np.ceil((final_time_s - self.time_s) / self.dt))
-        history: list[SimpleSimulationStep] = []
+        history: list[SimulationStep] = []
         for _ in range(max(0, steps)):
             cmd = command_fn(self.time_s, self.state.copy())
             step = self.step(cmd, dt=self.dt)
@@ -128,7 +128,7 @@ def _yaw_from_quaternion(q: np.ndarray) -> float:
 def _compute_desired_attitude(
     accel_ned: np.ndarray,
     yaw_target: float,
-    config: SimpleSimulatorConfig,
+    config: SimulatorConfig,
 ) -> np.ndarray:
     gravity_vec = np.array([0.0, 0.0, config.gravity_m_s2], dtype=float)
     thrust_dir = gravity_vec - accel_ned
@@ -168,7 +168,7 @@ def _limit_vector_norm(vec: np.ndarray, max_norm: float) -> np.ndarray:
     return vec * (max_norm / norm)
 
 
-def _limit_acceleration(accel: np.ndarray, config: SimpleSimulatorConfig) -> np.ndarray:
+def _limit_acceleration(accel: np.ndarray, config: SimulatorConfig) -> np.ndarray:
     accel = np.asarray(accel, dtype=float)
     horiz = accel[:2]
     max_horiz = config.gravity_m_s2 * math.tan(math.radians(config.max_tilt_deg))

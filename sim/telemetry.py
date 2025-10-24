@@ -8,11 +8,12 @@ import numpy as np
 
 from .commands import PositionVelocityCommand
 from .math_utils import quat_to_euler
-from .simulator import SimulationStepResult
+
+from .simulator import SimulationStep
 
 
 class TelemetryLogger:
-    """Minimal CSV logger for simulator telemetry."""
+    """CSV logger tailored for the simulator state history."""
 
     HEADERS = [
         "time_s",
@@ -37,22 +38,16 @@ class TelemetryLogger:
         "cmd_acc_x",
         "cmd_acc_y",
         "cmd_acc_z",
+        "filt_acc_x",
+        "filt_acc_y",
+        "filt_acc_z",
         "veh_roll",
         "veh_pitch",
         "veh_yaw",
-        "cmd_roll",
-        "cmd_pitch",
         "cmd_yaw",
-        "thrust",
-        "body_rate_command_x",
-        "body_rate_command_y",
-        "body_rate_command_z",
-        "veh_body_rate_x",
-        "veh_body_rate_y",
-        "veh_body_rate_z",
     ]
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._file = self.path.open("w", newline="")
@@ -63,7 +58,7 @@ class TelemetryLogger:
         if not self._file.closed:
             self._file.close()
 
-    def __enter__(self) -> TelemetryLogger:
+    def __enter__(self) -> "TelemetryLogger":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -71,23 +66,27 @@ class TelemetryLogger:
 
     def log(
         self,
-        step: SimulationStepResult,
+        step: SimulationStep,
         command: PositionVelocityCommand,
         reference_position: Optional[Iterable[float]] = None,
         reference_velocity: Optional[Iterable[float]] = None,
     ) -> None:
-        ref_pos = np.zeros(3) if reference_position is None else np.asarray(reference_position)
-        ref_vel = np.zeros(3) if reference_velocity is None else np.asarray(reference_velocity)
+        ref_pos = (
+            np.zeros(3, dtype=float)
+            if reference_position is None
+            else np.asarray(reference_position, dtype=float)
+        )
+        ref_vel = (
+            np.zeros(3, dtype=float)
+            if reference_velocity is None
+            else np.asarray(reference_velocity, dtype=float)
+        )
 
         veh_roll, veh_pitch, veh_yaw = quat_to_euler(step.state.quaternion_bn)
-        cmd_roll = cmd_pitch = cmd_yaw = 0.0
-        if step.controller.attitude_target_quat is not None:
-            cmd_roll, cmd_pitch, cmd_yaw = quat_to_euler(
-                step.controller.attitude_target_quat
-            )
+        cmd_yaw = float(command.yaw_heading) if command.yaw_heading is not None else float("nan")
 
         row = [
-            step.time,
+            step.time_s,
             *ref_pos.tolist(),
             *step.state.position_ned.tolist(),
             *ref_vel.tolist(),
@@ -95,15 +94,11 @@ class TelemetryLogger:
             *command.position_ned.tolist(),
             *command.velocity_ned_ff.tolist(),
             *command.accel_ned_ff.tolist(),
+            *step.filtered_accel_ned.tolist(),
             veh_roll,
             veh_pitch,
             veh_yaw,
-            cmd_roll,
-            cmd_pitch,
             cmd_yaw,
-            step.controller.thrust_command,
-            *step.controller.body_rate_command.tolist(),
-            *step.state.angular_velocity_body.tolist(),
         ]
         self._writer.writerow(row)
         self._file.flush()

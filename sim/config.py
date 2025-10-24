@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class SimpleSimulatorConfig:
-    """Configuration parameters for the simplified quadrotor simulator."""
+class SimulatorConfig:
+    """Configuration parameters for the quadrotor simulator."""
 
     dt: float = 0.02
     position_gain: float = 0.8

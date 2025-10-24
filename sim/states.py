@@ -5,18 +5,18 @@ import numpy as np
 
 
 @dataclass
-class SimpleState:
-    """State tracked by the simplified simulator."""
+class State:
+    """State tracked by the simulator."""
 
-    position_ned: np.ndarray = field(default_factory=lambda: np.zeros(3))
-    velocity_ned: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    position_ned: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=float))
+    velocity_ned: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=float))
     quaternion_bn: np.ndarray = field(
         default_factory=lambda: np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
     )
-    angular_velocity_body: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    angular_velocity_body: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=float))
 
-    def copy(self) -> "SimpleState":
-        return SimpleState(
+    def copy(self) -> "State":
+        return State(
             position_ned=self.position_ned.copy(),
             velocity_ned=self.velocity_ned.copy(),
             quaternion_bn=self.quaternion_bn.copy(),

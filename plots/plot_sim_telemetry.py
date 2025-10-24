@@ -15,9 +15,9 @@ if __package__ in (None, ""):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Plot telemetry captured from the simple simulator."
+        description="Plot telemetry captured from the simulator."
     )
-    parser.add_argument("logfile", type=Path, help="Path to a simple sim CSV log")
+    parser.add_argument("logfile", type=Path, help="Path to a sim CSV log")
     parser.add_argument(
         "-o",
         "--output",
@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def plot_simple_telemetry(df: pd.DataFrame, output: Path | None) -> None:
+def plot_sim_telemetry(df: pd.DataFrame, output: Path | None) -> None:
     time = df["time_s"].to_numpy()
 
     fig, axes = plt.subplots(4, 1, figsize=(10, 12), sharex=True)
@@ -105,7 +105,7 @@ def main() -> None:
     if missing:
         raise SystemExit(f"Log is missing expected columns: {missing}")
 
-    plot_simple_telemetry(df, args.output)
+    plot_sim_telemetry(df, args.output)
 
 
 if __name__ == "__main__":

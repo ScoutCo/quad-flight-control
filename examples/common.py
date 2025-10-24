@@ -15,14 +15,14 @@ from offboard_control.path_follower import (
     PlanState,
     PositionVelocityPathFollower,
 )
-from simple_sim import (
-    SimpleSimulationStep,
-    SimpleSimulator,
-    SimpleSimulatorConfig,
-    SimpleState,
-    SimpleTelemetryLogger,
+from sim import (
+    PositionVelocityCommand,
+    SimulationStep,
+    Simulator,
+    SimulatorConfig,
+    State,
+    TelemetryLogger,
 )
-from sixdof_sim.commands import PositionVelocityCommand
 
 from .trajectories import Trajectory
 
@@ -63,7 +63,7 @@ class CommandGenerator:
     last_debug: PathFollowerDebug | None = None
     last_plan_timestamp_s: float = float("nan")
 
-    def __call__(self, time_s: float, state: SimpleState) -> PositionVelocityCommand:
+    def __call__(self, time_s: float, state: State) -> PositionVelocityCommand:
         if (time_s - self.last_plan_time_s) >= self.plan_update_period_s - 1e-9:
             plan, plan_timestamp = _build_plan(
                 self.trajectory, self.plan_offsets_s, time_s, self.planner_delay_s
@@ -89,7 +89,7 @@ class CommandGenerator:
         return self.last_command
 
 
-def analyze_history(history: Iterable[SimpleSimulationStep], trajectory: Trajectory) -> None:
+def analyze_history(history: Iterable[SimulationStep], trajectory: Trajectory) -> None:
     history = list(history)
     if not history:
         print("No simulation history recorded.")
@@ -117,12 +117,12 @@ def run_path_follower_example(
     log_path: Path,
     final_time_s: float = 30.0,
     *,
-    simulator_config: SimpleSimulatorConfig | None = None,
+    simulator_config: SimulatorConfig | None = None,
     follower_config: PathFollowerConfig | None = None,
     plan_offsets_s: Sequence[float] = DEFAULT_PLAN_LOOKAHEAD_OFFSETS,
     planner_delay_s: float = 1.3,
     plan_update_period_s: float = 1.0,
-) -> list[SimpleSimulationStep]:
+) -> list[SimulationStep]:
     if follower_config is None:
         follower_config = PathFollowerConfig(
             lookahead_offset_s=0.5, max_plan_age_s=max(5.0, plan_update_period_s + planner_delay_s + 1.0)
@@ -137,13 +137,13 @@ def run_path_follower_example(
         plan_update_period_s=plan_update_period_s,
     )
 
-    simulator = SimpleSimulator(simulator_config)
+    simulator = Simulator(simulator_config)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    history: list[SimpleSimulationStep]
-    with SimpleTelemetryLogger(log_path) as logger:
+    history: list[SimulationStep]
+    with TelemetryLogger(log_path) as logger:
 
-        def log_step(step: SimpleSimulationStep) -> None:
+        def log_step(step: SimulationStep) -> None:
             command = command_generator.last_command
             logger.log(
                 step,
