@@ -4,7 +4,7 @@ This repository bundles a lightweight multirotor simulator together with support
 
 ## What’s Included
 - `sim/`: core simulator, state containers, telemetry logger, and common math helpers.
-- `offboard_control/`: path follower implementation that operates on position/velocity plans.
+- `path_follower/`: path follower implementation that operates on position/velocity plans.
 - `examples/`: helper functions and runnable demos showcasing the simulator and path follower.
 - `tests/sim/`: unit tests that exercise the simulator and logging utilities.
 

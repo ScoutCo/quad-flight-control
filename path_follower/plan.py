@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Iterator, Tuple
+from typing import Iterable, Iterator, Protocol, Sequence, Tuple
 
 import numpy as np
 
@@ -62,3 +62,31 @@ class Plan:
     def copy_with_states(self, states: Iterable[PlanState]) -> Plan:
         """Return a shallow copy with a new set of states."""
         return Plan(tuple(states), self.timestamp_s, self.frame_id)
+
+
+class TrajectoryLike(Protocol):
+    def position(self, time_s: float) -> np.ndarray: ...
+
+    def velocity(self, time_s: float) -> np.ndarray: ...
+
+    def yaw(self, time_s: float) -> float: ...
+
+
+def build_plan(
+    trajectory: TrajectoryLike,
+    plan_offsets_s: Sequence[float],
+    now_s: float,
+    planner_delay_s: float,
+) -> tuple[Plan, float]:
+    plan_timestamp = now_s - planner_delay_s
+    states: tuple[PlanState, ...] = tuple(
+        PlanState(
+            position_ned=trajectory.position(plan_timestamp + offset),
+            yaw_rad=trajectory.yaw(plan_timestamp + offset),
+            time_s=plan_timestamp + offset,
+        )
+        for offset in plan_offsets_s
+    )
+    if len(states) < 2:
+        raise ValueError("Path follower requires at least two plan states.")
+    return Plan(states=states, timestamp_s=plan_timestamp, frame_id="ref_ned"), plan_timestamp

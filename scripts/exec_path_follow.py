@@ -23,7 +23,7 @@ from typing import Tuple, Optional, List, Union
 import numpy as np
 
 from pymavlink import mavutil
-from examples.trajectories import zigzag_trajectory
+from common import zigzag_trajectory
 
 MESSAGE_NAME_BY_ID = {
     mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE: "ATTITUDE",

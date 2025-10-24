@@ -13,9 +13,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from offboard_control.config import PathFollowerConfig
-from offboard_control.path_follower import PathFollowerException, PositionVelocityPathFollower
-from offboard_control.plan import Plan, PlanState
+from path_follower.config import PathFollowerConfig
+from path_follower.path_follower import PathFollowerException, PositionVelocityPathFollower
+from path_follower.plan import Plan, PlanState
 from sim import Simulator, SimulatorConfig, TelemetryLogger
 
 

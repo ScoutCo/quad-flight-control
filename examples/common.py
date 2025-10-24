@@ -1,94 +1,25 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
 import numpy as np
 
-from offboard_control.config import PathFollowerConfig
-from offboard_control.path_follower import (
-    PathFollowerDebug,
-    PathFollowerException,
-    Plan,
-    PlanState,
+from path_follower import (
+    DEFAULT_PLAN_LOOKAHEAD_OFFSETS,
+    PathFollowerConfig,
     PositionVelocityPathFollower,
+    SimCommandGenerator,
 )
 from sim import (
-    PositionVelocityCommand,
     SimulationStep,
     Simulator,
     SimulatorConfig,
-    State,
     TelemetryLogger,
 )
 
-from .trajectories import Trajectory
-
-
-# Extend the plan far enough that lookahead checks remain valid between planner updates.
-DEFAULT_PLAN_LOOKAHEAD_OFFSETS = (1.0, 2.0, 4.5)
-
-
-def _build_plan(
-    trajectory: Trajectory,
-    plan_offsets_s: Sequence[float],
-    now_s: float,
-    planner_delay_s: float,
-) -> tuple[Plan, float]:
-    plan_timestamp = now_s - planner_delay_s
-    states: tuple[PlanState, ...] = tuple(
-        PlanState(
-            position_ned=trajectory.position(plan_timestamp + offset),
-            yaw_rad=trajectory.yaw(plan_timestamp + offset),
-            time_s=plan_timestamp + offset,
-        )
-        for offset in plan_offsets_s
-    )
-    if len(states) < 2:
-        raise ValueError("Path follower requires at least two plan states.")
-    return Plan(states=states, timestamp_s=plan_timestamp, frame_id="ref_ned"), plan_timestamp
-
-
-@dataclass
-class CommandGenerator:
-    follower: PositionVelocityPathFollower
-    trajectory: Trajectory
-    plan_offsets_s: Sequence[float]
-    planner_delay_s: float
-    plan_update_period_s: float
-    last_plan_time_s: float = -math.inf
-    last_command: PositionVelocityCommand = field(default_factory=PositionVelocityCommand)
-    last_debug: PathFollowerDebug | None = None
-    last_plan_timestamp_s: float = float("nan")
-
-    def __call__(self, time_s: float, state: State) -> PositionVelocityCommand:
-        if (time_s - self.last_plan_time_s) >= self.plan_update_period_s - 1e-9:
-            plan, plan_timestamp = _build_plan(
-                self.trajectory, self.plan_offsets_s, time_s, self.planner_delay_s
-            )
-            self.follower.handle_plan(plan)
-            self.last_plan_time_s = time_s
-            self.last_plan_timestamp_s = plan_timestamp
-
-        try:
-            result = self.follower.next_command(time_s)
-        except PathFollowerException:
-            hold_position = state.position_ned.copy()
-            self.last_command = PositionVelocityCommand(
-                position_ned=hold_position,
-                velocity_ned_ff=np.zeros(3),
-                yaw_heading=float(self.trajectory.yaw(time_s)),
-            )
-            self.last_debug = None
-            return self.last_command
-
-        self.last_command = result.command
-        self.last_debug = result.debug
-        self.last_command = result.command
-        self.last_debug = result.debug
-        return self.last_command
+from common import Trajectory
 
 
 def analyze_history(history: Iterable[SimulationStep], trajectory: Trajectory) -> None:
@@ -131,7 +62,7 @@ def run_path_follower_example(
         )
 
     follower = PositionVelocityPathFollower(follower_config)
-    command_generator = CommandGenerator(
+    command_generator = SimCommandGenerator(
         follower=follower,
         trajectory=trajectory,
         plan_offsets_s=plan_offsets_s,
@@ -147,12 +78,13 @@ def run_path_follower_example(
 
         def log_step(step: SimulationStep) -> None:
             command = command_generator.last_command
-            logger.log(
-                step,
-                command,
-                reference_position=trajectory.position(step.time_s),
-                reference_velocity=trajectory.velocity(step.time_s),
-            )
+            if command is not None:
+                logger.log(
+                    step,
+                    command,
+                    reference_position=trajectory.position(step.time_s),
+                    reference_velocity=trajectory.velocity(step.time_s),
+                )
 
         history = simulator.run(
             final_time_s=final_time_s,

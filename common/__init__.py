@@ -1,13 +1,12 @@
-"""Lightweight example scripts for the simulator path follower demos."""
+"""Shared trajectory primitives."""
 
-from common import (
+from .trajectories import (
     Trajectory,
     circle_trajectory,
     line_trajectory,
     sinusoid_trajectory,
     zigzag_trajectory,
 )
-from .common import run_path_follower_example
 
 __all__ = [
     "Trajectory",
@@ -15,5 +14,4 @@ __all__ = [
     "line_trajectory",
     "sinusoid_trajectory",
     "zigzag_trajectory",
-    "run_path_follower_example",
 ]
