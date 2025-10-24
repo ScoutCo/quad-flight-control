@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 @dataclass(frozen=True)
@@ -19,3 +20,4 @@ class SimulatorConfig:
     gravity_m_s2: float = 9.80665
     max_tilt_deg: float = 35.0
     initial_yaw_rad: float = 0.0
+    max_yaw_rate_rad_s: float = math.radians(180.0)

@@ -86,6 +86,8 @@ class CommandGenerator:
 
         self.last_command = result.command
         self.last_debug = result.debug
+        self.last_command = result.command
+        self.last_debug = result.debug
         return self.last_command
 
 

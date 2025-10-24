@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
 def plot_sim_telemetry(df: pd.DataFrame, output: Path | None) -> None:
     time = df["time_s"].to_numpy()
 
-    fig, axes = plt.subplots(4, 1, figsize=(10, 12), sharex=True)
+    fig, axes = plt.subplots(5, 1, figsize=(10, 14), sharex=True)
 
     for comp, label in zip(("x", "y", "z"), ("X", "Y", "Z")):
         axes[0].plot(time, df[f"veh_pos_{comp}"], label=f"{label} actual")
@@ -68,13 +68,17 @@ def plot_sim_telemetry(df: pd.DataFrame, output: Path | None) -> None:
     axes[2].legend(loc="upper right", fontsize="small")
     axes[2].grid(True, linestyle=":")
 
-    axes[3].plot(time, np.degrees(df["veh_roll"]), label="Roll (deg)")
-    axes[3].plot(time, np.degrees(df["veh_pitch"]), label="Pitch (deg)")
-    axes[3].plot(time, np.degrees(df["veh_yaw"]), label="Yaw (deg)")
+    roll = np.rad2deg(df["veh_roll"].to_numpy())
+    pitch = np.rad2deg(df["veh_pitch"].to_numpy())
+    yaw = np.rad2deg(np.unwrap(df["veh_yaw"].to_numpy()))
+    axes[3].plot(time, roll, label="Roll (deg)")
+    axes[3].plot(time, pitch, label="Pitch (deg)")
+    axes[3].plot(time, yaw, label="Yaw (deg)")
     if "cmd_yaw" in df.columns and df["cmd_yaw"].notna().any():
+        cmd_yaw = np.rad2deg(np.unwrap(df["cmd_yaw"].ffill().to_numpy()))
         axes[3].plot(
             time,
-            np.degrees(df["cmd_yaw"].fillna(method="ffill")),
+            cmd_yaw,
             linestyle="--",
             label="Yaw cmd (deg)",
         )
@@ -82,7 +86,17 @@ def plot_sim_telemetry(df: pd.DataFrame, output: Path | None) -> None:
     axes[3].legend(loc="upper right", fontsize="small")
     axes[3].grid(True, linestyle=":")
 
-    axes[3].set_xlabel("Time (s)")
+    if "veh_tilt" in df.columns:
+        axes[4].plot(time, df["veh_tilt"], label="Tilt (deg)")
+        axes[4].axhline(35.0, color="r", linestyle="--", linewidth=1.0, label="35° limit")
+        axes[4].set_ylabel("Tilt (deg)")
+        axes[4].legend(loc="upper right", fontsize="small")
+        axes[4].grid(True, linestyle=":")
+    else:
+        axes[4].text(0.5, 0.5, "veh_tilt column missing", transform=axes[4].transAxes, ha="center")
+        axes[4].set_axis_off()
+
+    axes[4].set_xlabel("Time (s)")
 
     fig.tight_layout()
 

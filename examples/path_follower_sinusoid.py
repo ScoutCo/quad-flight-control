@@ -16,12 +16,12 @@ SIM_FINAL_TIME_S = 30.0
 
 def main() -> None:
     trajectory = sinusoid_trajectory(
-        forward_speed_m_s=3.0,
-        y_amplitude_m=2.0,
-        y_frequency_hz=0.2,
+        forward_speed_m_s=5.0,
+        y_amplitude_m=5.0,
+        y_frequency_hz=0.05,
         z_base_m=-5.0,
-        z_amplitude_m=0.8,
-        z_frequency_hz=0.3,
+        z_amplitude_m=1.0,
+        z_frequency_hz=0.025,
     )
 
     run_path_follower_example(

@@ -8,7 +8,7 @@ from .config import PathFollowerConfig
 
 
 class VelocitySmoother:
-    """Blend velocity feed-forward commands while respecting slew limits."""
+    """Filter velocity feed-forward commands while respecting slew limits."""
 
     def __init__(self, config: PathFollowerConfig):
         self._config = config

@@ -20,6 +20,7 @@ from sim import (
     TelemetryLogger,
 )
 from sim import quat_to_euler
+from sim.math_utils import quat_to_rotation_matrix, rotation_matrix_to_quat
 
 
 def test_constant_velocity_command_reached() -> None:
@@ -109,3 +110,47 @@ def test_telemetry_logger_records_data(tmp_path, ref_velocity) -> None:
     assert np.allclose(values[7:10], ref_velocity.tolist(), atol=1e-6)
     assert values[4] != 0.0 or values[5] != 0.0 or values[6] != 0.0
     assert values[22] != 0.0 or values[23] != 0.0 or values[24] != 0.0
+
+
+def test_tilt_limit_enforced() -> None:
+    config = SimulatorConfig(max_tilt_deg=35.0)
+    sim = Simulator(config)
+
+    yaw = 0.0
+    thrust_dir = np.array([1.0, 0.0, 0.1], dtype=float)
+    thrust_dir = thrust_dir / np.linalg.norm(thrust_dir)
+
+    x_ref = np.array([math.cos(yaw), math.sin(yaw), 0.0], dtype=float)
+    if np.linalg.norm(x_ref) < 1e-6:
+        x_ref = np.array([1.0, 0.0, 0.0], dtype=float)
+
+    y_body = np.cross(thrust_dir, x_ref)
+    if np.linalg.norm(y_body) < 1e-6:
+        x_ref = np.array([0.0, 1.0, 0.0], dtype=float)
+        y_body = np.cross(thrust_dir, x_ref)
+    y_body = y_body / np.linalg.norm(y_body)
+    x_body = np.cross(y_body, thrust_dir)
+    x_body = x_body / np.linalg.norm(x_body)
+
+    rot_bn = np.column_stack((x_body, y_body, thrust_dir))
+    sim.state.quaternion_bn = rotation_matrix_to_quat(rot_bn)
+
+    sim._enforce_tilt_limit()
+
+    limited_rot = quat_to_rotation_matrix(sim.state.quaternion_bn)
+    limited_z = limited_rot[:, 2]
+    tilt_deg = math.degrees(math.acos(np.clip(limited_z[2], -1.0, 1.0)))
+
+    assert tilt_deg <= config.max_tilt_deg + 1e-6
+
+
+def test_yaw_rate_limit() -> None:
+    max_rate_deg_s = 45.0
+    config = SimulatorConfig(dt=0.02, max_yaw_rate_rad_s=math.radians(max_rate_deg_s))
+    sim = Simulator(config)
+
+    command = PositionVelocityCommand(yaw_heading=math.pi)
+    sim.step(command)
+
+    expected_delta = math.radians(max_rate_deg_s) * config.dt
+    assert math.isclose(sim._target_yaw, expected_delta, rel_tol=1e-6, abs_tol=1e-6)

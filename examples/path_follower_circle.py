@@ -16,9 +16,9 @@ SIM_FINAL_TIME_S = 32.0
 
 def main() -> None:
     trajectory = circle_trajectory(
-        radius_m=6.0,
-        altitude_m=-3.5,
-        period_s=26.0,
+        radius_m=10.0,
+        altitude_m=-5.0,
+        period_s=60.0,
         phase_rad=0.0,
     )
 

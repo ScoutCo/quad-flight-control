@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
@@ -79,7 +80,41 @@ def quat_from_axis_angle(axis: np.ndarray, angle: float) -> np.ndarray:
 
 
 def quat_to_euler(q: np.ndarray) -> np.ndarray:
-    return _rotation_from_wxyz(q).as_euler("xyz")
+    """Return roll/pitch/yaw using the aerospace Z-Y-X convention."""
+
+    # SciPy returns angles in the order of the axes we request. We ask for the
+    # conventional aerospace sequence (yaw Z, pitch Y, roll X) and then reorder
+    # the components so callers continue to receive roll, pitch, yaw.
+    yaw, pitch, roll = _rotation_from_wxyz(q).as_euler("zyx")
+    return np.array([roll, pitch, yaw], dtype=float)
+
+
+def quat_slerp(q0: np.ndarray, q1: np.ndarray, alpha: float) -> np.ndarray:
+    """Spherical linear interpolation between two quaternions."""
+
+    q0 = quat_normalize(q0)
+    q1 = quat_normalize(q1)
+    alpha = float(np.clip(alpha, 0.0, 1.0))
+    dot = float(np.dot(q0, q1))
+    if dot < 0.0:
+        q1 = -q1
+        dot = -dot
+
+    if dot > 0.9995:
+        result = q0 + alpha * (q1 - q0)
+        return quat_normalize(result)
+
+    theta_0 = math.acos(np.clip(dot, -1.0, 1.0))
+    sin_theta_0 = math.sin(theta_0)
+    if sin_theta_0 <= 1e-6:
+        return q1.copy()
+
+    theta = theta_0 * alpha
+    sin_theta = math.sin(theta)
+    s0 = math.cos(theta) - dot * sin_theta / sin_theta_0
+    s1 = sin_theta / sin_theta_0
+    result = s0 * q0 + s1 * q1
+    return quat_normalize(result)
 
 
 def integrate_quaternion(q: np.ndarray, omega_body: np.ndarray, dt: float) -> np.ndarray:

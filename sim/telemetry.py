@@ -7,7 +7,7 @@ from typing import Iterable, Optional
 import numpy as np
 
 from .commands import PositionVelocityCommand
-from .math_utils import quat_to_euler
+from .math_utils import quat_to_euler, quat_to_rotation_matrix
 
 from .simulator import SimulationStep
 
@@ -44,7 +44,8 @@ class TelemetryLogger:
         "veh_roll",
         "veh_pitch",
         "veh_yaw",
-        "cmd_yaw",
+    "cmd_yaw",
+    "veh_tilt",
     ]
 
     def __init__(self, path: Path) -> None:
@@ -83,6 +84,15 @@ class TelemetryLogger:
         )
 
         veh_roll, veh_pitch, veh_yaw = quat_to_euler(step.state.quaternion_bn)
+        rot_bn = quat_to_rotation_matrix(step.state.quaternion_bn)
+        body_z_nav = rot_bn[:, 2]
+        tilt = float(
+            np.degrees(
+                np.arccos(
+                    np.clip(body_z_nav[2], -1.0, 1.0)
+                )
+            )
+        )
         cmd_yaw = float(command.yaw_heading) if command.yaw_heading is not None else float("nan")
 
         row = [
@@ -99,6 +109,7 @@ class TelemetryLogger:
             veh_pitch,
             veh_yaw,
             cmd_yaw,
+            tilt,
         ]
         self._writer.writerow(row)
         self._file.flush()
