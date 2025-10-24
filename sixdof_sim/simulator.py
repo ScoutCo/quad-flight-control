@@ -42,7 +42,9 @@ class SixDofSimulator:
         self.dt = dt
 
         self.dynamics = RigidBodyDynamics(self.vehicle)
-        self.controller = CascadedController(self.vehicle, self.controller_gains)
+        self.controller = CascadedController(
+            self.vehicle, self.controller_gains, self.actuator_params
+        )
         self.actuators = ActuatorDynamics(self.actuator_params)
         self.environment = Environment(self.environment_params)
 
