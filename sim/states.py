@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 from dataclasses import dataclass, field
+from typing import Self
+
 import numpy as np
 
 
@@ -15,7 +15,7 @@ class State:
     )
     angular_velocity_body: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=float))
 
-    def copy(self) -> "State":
+    def copy(self) -> Self:
         return State(
             position_ned=self.position_ned.copy(),
             velocity_ned=self.velocity_ned.copy(),

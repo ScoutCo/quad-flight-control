@@ -1,18 +1,20 @@
-# Multirotor Simulation Toolkit
+# Quadcopter Controls and Simulation Tools
 
-This repository bundles a lightweight multirotor simulator together with supporting utilities for generating reference plans, running path-following controllers, and analysing the resulting telemetry. It focuses on a low-complexity fixed-step model that is easy to iterate on when evaluating offboard control strategies.
-
-## What’s Included
-- `sim/`: core simulator, state containers, telemetry logger, and common math helpers.
-- `path_follower/`: path follower implementation that operates on position/velocity plans.
-- `examples/`: helper functions and runnable demos showcasing the simulator and path follower.
-- `tests/sim/`: unit tests that exercise the simulator and logging utilities.
+## Project Layout
+- `sim/`: simple kinematic simulator to generate represntative poses from position + velocity controls. no dynamics
+- `path_follower/`: setpoint control generation from a plan; port of C++ code
+- `common/`: reusable bits for sim and flight
+- `examples/`: runnable demos that tie the simulator, command generator, and trajectories together
+- `plots/`: viz and plotting tools
+- `flight_test/`: MAVSDK-based scripts for exercising the follower against a real vehicle.
+- `analysis/`: notebooks and ad-hoc studies
+- `tests/`: unit tests 
 
 ## Quick Start
 Run one of the bundled demos to generate telemetry while following a reference trajectory:
 
 ```bash
-python -m examples.path_follower_circle
+uv run python -m examples.path_follower_circle
 ```
 
 The script will print a brief analysis summary and write a CSV log under `logs/` that you can inspect in your plotting tool of choice.
@@ -27,7 +29,26 @@ uv sync --all-extras --dev
 Execute the simulator tests with:
 
 ```bash
-pytest tests/sim
+pytest tests
 ```
 
 Telemetry logs and intermediate artefacts are written to the `logs/` directory.
+
+## Minimal Usage Example
+```python
+from path_follower import PositionVelocityPathFollower
+from sim import Simulator
+
+follower = PositionVelocityPathFollower()
+simulator = Simulator()
+
+while True:
+    new_plan = try_get_new_plan()
+    cmd = follower.next_command(t).command
+    step_data = flight_sim.step(cmd)
+
+    pos = step_data.state.position_ned
+    ...
+
+    sleep(dt)
+```

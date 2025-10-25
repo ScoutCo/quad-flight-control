@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from typing import Optional
-
 import numpy as np
 
 from .config import PathFollowerConfig
@@ -13,7 +9,7 @@ class VelocitySmoother:
     def __init__(self, config: PathFollowerConfig):
         self._config = config
         self._last_velocity_command = np.zeros(3, dtype=float)
-        self._last_command_time: Optional[float] = None
+        self._last_command_time: float | None = None
 
     def reset(self) -> None:
         self._last_velocity_command = np.zeros(3, dtype=float)

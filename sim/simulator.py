@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 import math
 from typing import Callable
@@ -8,7 +6,6 @@ import numpy as np
 
 from .commands import PositionVelocityCommand
 from .math_utils import (
-    integrate_quaternion,
     normalize_vector,
     quat_normalize,
     quat_to_euler,

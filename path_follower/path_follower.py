@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 import bisect
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -48,12 +46,12 @@ class PositionVelocityPathFollower:
 
     def __init__(
         self,
-        config: Optional[PathFollowerConfig] = None,
-        velocity_smoother: Optional[VelocitySmoother] = None,
+        config: PathFollowerConfig | None = None,
+        velocity_smoother: VelocitySmoother | None = None,
     ):
         self._config = config or PathFollowerConfig()
         self._velocity_smoother = velocity_smoother or VelocitySmoother(self._config)
-        self._plan: Optional[Plan] = None
+        self._plan: Plan | None = None
 
     def handle_plan(self, plan: Plan) -> None:
         self._plan = plan
@@ -129,7 +127,7 @@ class PositionVelocityPathFollower:
 
 def _get_lower_upper_state_bounds(
     states: Sequence[PlanState], lookup_time_s: float
-) -> Tuple[PlanState, PlanState]:
+) -> tuple[PlanState, PlanState]:
     times = [state.time_s for state in states]
     upper_idx = bisect.bisect_left(times, lookup_time_s)
     if upper_idx >= len(states):

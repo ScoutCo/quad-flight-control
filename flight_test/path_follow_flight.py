@@ -11,8 +11,6 @@ Example usage:
 Select the reference trajectory inside ``build_reference_trajectory`` below.
 """
 
-from __future__ import annotations
-
 import argparse
 import asyncio
 import csv
@@ -22,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 import datetime
 from pathlib import Path
-from typing import Callable, IO
+from typing import IO
 
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -31,14 +29,10 @@ import numpy as np
 
 from mavsdk import System
 from mavsdk.action import ActionError
-from mavsdk.telemetry import FlightMode
 from mavsdk.offboard import OffboardError, PositionNedYaw, VelocityNedYaw
 
 from common import (
     Trajectory,
-    circle_trajectory,
-    line_trajectory,
-    sinusoid_trajectory,
     zigzag_trajectory,
 )
 from path_follower import (

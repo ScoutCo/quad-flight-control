@@ -2,8 +2,6 @@
 
 """Plot telemetry produced by path_follow_flight.py."""
 
-from __future__ import annotations
-
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt

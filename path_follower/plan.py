@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Iterable, Iterator, Protocol, Sequence, Tuple
+from collections.abc import Iterable, Iterator, Sequence
+from typing import Protocol, Self
 
 import numpy as np
 
@@ -25,7 +24,7 @@ class PlanState:
 
 @dataclass(frozen=True)
 class Plan:
-    states: Tuple[PlanState, ...]
+    states: tuple[PlanState, ...]
     timestamp_s: float
     frame_id: str | None = None
 
@@ -59,7 +58,7 @@ class Plan:
     def duration_s(self) -> float:
         return self.end_time_s - self.start_time_s
 
-    def copy_with_states(self, states: Iterable[PlanState]) -> Plan:
+    def copy_with_states(self, states: Iterable[PlanState]) -> Self:
         """Return a shallow copy with a new set of states."""
         return Plan(tuple(states), self.timestamp_s, self.frame_id)
 
