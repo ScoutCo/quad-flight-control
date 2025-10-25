@@ -52,7 +52,6 @@ def _trajectory_cases() -> list[tuple[str, TrajectoryFactory, float]]:
                 forward_speed_m_s=5.0,
                 y_amplitude_m=5.0,
                 y_frequency_hz=0.05,
-                z_base_m=-5.0,
                 z_amplitude_m=1.0,
                 z_frequency_hz=0.025,
             ),
