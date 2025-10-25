@@ -13,14 +13,14 @@ class PathFollowerConfig:
     lookahead_offset_s: float = 0.5
     max_plan_age_s: float = 1.0
     max_plan_future_s: float = 5.0
-    tau_v_xy: float = 0.35
-    tau_v_z: float = 0.4
-    a_max_xy: float = 4.0
-    a_max_up: float = 3.0
-    a_max_down: float = 3.0
-    v_max_xy: float = 8.0
-    v_max_up: float = 3.0
-    v_max_down: float = 3.0
+    tau_v_xy: float = 0.2
+    tau_v_z: float = 0.2
+    a_max_xy: float = 3.5
+    a_max_up: float = 2.5
+    a_max_down: float = 2.0
+    v_max_xy: float = 15.0
+    v_max_up: float = 4.0
+    v_max_down: float = 4.0
 
     def __post_init__(self) -> None:
         if self.lookahead_offset_s < 0.0:

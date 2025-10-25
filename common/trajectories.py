@@ -18,11 +18,10 @@ class Trajectory:
 
 def sinusoid_trajectory(
     forward_speed_m_s: float = 3.0,
-    y_amplitude_m: float = 2.0,
+    y_amplitude_m: float = 10.0,
     y_frequency_hz: float = 0.2,
-    z_base_m: float = -5.0,
-    z_amplitude_m: float = 0.8,
-    z_frequency_hz: float = 0.3,
+    z_amplitude_m: float = 0.0,
+    z_frequency_hz: float = 0.0,
 ) -> Trajectory:
     omega_y = 2.0 * math.pi * y_frequency_hz
     omega_z = 2.0 * math.pi * z_frequency_hz
@@ -30,7 +29,7 @@ def sinusoid_trajectory(
     def position(time_s: float) -> np.ndarray:
         x = forward_speed_m_s * time_s
         y = y_amplitude_m * math.sin(omega_y * time_s)
-        z = z_base_m + z_amplitude_m * math.sin(omega_z * time_s)
+        z = z_amplitude_m * math.sin(omega_z * time_s)
         return np.array([x, y, z], dtype=float)
 
     def velocity(time_s: float) -> np.ndarray:
@@ -85,7 +84,7 @@ def circle_trajectory(
 def line_trajectory(
     speed_m_s: float = 4.0,
     heading_rad: float = 0.0,
-    altitude_m: float = -2.5,
+    altitude_m: float = 0.0,
     lateral_offset_m: float = 0.0,
 ) -> Trajectory:
     cos_h = math.cos(heading_rad)

@@ -20,6 +20,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Tuple, Optional, List, Union
 
+if __package__ in (None, ""):
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 import numpy as np
 
 from pymavlink import mavutil
