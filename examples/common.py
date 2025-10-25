@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 import math
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import numpy as np
 

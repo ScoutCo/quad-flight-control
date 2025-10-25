@@ -459,7 +459,7 @@ def main():
 
     # Use the *initial* body frame as the reference anchor
     # (trajectory is defined relative to the vehicle pose at t0)
-    R_b_to_ned = rz(yaw0)
+    rz(yaw0)
     x0, y0, z0 = pos0.x, pos0.y, pos0.z
     print(
         f"Initial NED position: ({x0:.2f}, {y0:.2f}, {z0:.2f}) m, yaw0 = {math.degrees(yaw0):.1f}°"

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 if __package__ in (None, ""):

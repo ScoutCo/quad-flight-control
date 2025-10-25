@@ -1,7 +1,5 @@
 """Unit tests for the simulator dynamics."""
 
-from __future__ import annotations
-
 import math
 from pathlib import Path
 import sys

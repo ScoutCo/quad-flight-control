@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 import csv
 from pathlib import Path
-from typing import Iterable, Optional
+from collections.abc import Iterable
+from typing import Self
 
 import numpy as np
 
@@ -59,7 +58,7 @@ class TelemetryLogger:
         if not self._file.closed:
             self._file.close()
 
-    def __enter__(self) -> "TelemetryLogger":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -69,8 +68,8 @@ class TelemetryLogger:
         self,
         step: SimulationStep,
         command: PositionVelocityCommand,
-        reference_position: Optional[Iterable[float]] = None,
-        reference_velocity: Optional[Iterable[float]] = None,
+        reference_position: Iterable[float] | None = None,
+        reference_velocity: Iterable[float] | None = None,
     ) -> None:
         ref_pos = (
             np.zeros(3, dtype=float)
