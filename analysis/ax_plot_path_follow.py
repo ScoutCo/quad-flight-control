@@ -11,10 +11,13 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 
-PLAN_LOOKAHEAD_SEGMENTS = 1
-COMMAND_HISTORY_STRIDE = 15
+PLAN_LOOKAHEAD_SEGMENTS = 2
+COMMAND_HISTORY_STRIDE = 5
 COMMAND_HISTORY_COLOR = "#f28e1c"
 CURRENT_COMMAND_COLOR = "#d55e00"
+COMMAND_VELOCITY_STRIDE = 5
+COMMAND_VELOCITY_HISTORY_COLOR = "#c4b5fd"
+CURRENT_COMMAND_VELOCITY_COLOR = "#4c1d95"
 PLAN_HISTORY_COLOR = "#2ca02c"
 PLAN_CURRENT_COLOR = "#0c5b2a"
 PLAN_LOOKAHEAD_COLOR = "#8fd18f"
@@ -124,7 +127,17 @@ def _draw_plan_arrow(
     return arrows
 
 
-def plot_tracking_summary(control_df: pd.DataFrame) -> plt.Figure | None:
+def _extract_log_id(directory: Path) -> str:
+    name = directory.name
+    if name:
+        cleaned = name.removeprefix("path_follow_")
+        if cleaned:
+            return cleaned
+    resolved_name = directory.resolve().name
+    return resolved_name.removeprefix("path_follow_")
+
+
+def plot_tracking_summary(control_df: pd.DataFrame, log_id: str = "") -> plt.Figure | None:
     if control_df.empty:
         print("Control dataframe is empty; skipping tracking summary plot.")
         return None
@@ -150,14 +163,20 @@ def plot_tracking_summary(control_df: pd.DataFrame) -> plt.Figure | None:
         )
 
     time = _extract_time_axis(control_df)
-    fig, (ax_pos, ax_yaw, ax_run) = plt.subplots(
-        3,
+    fig, axes = plt.subplots(
+        4,
         1,
-        figsize=(10, 8),
+        figsize=(10, 10),
         sharex=True,
-        gridspec_kw={"height_ratios": [2, 1, 0.6]},
+        gridspec_kw={"height_ratios": [2, 1.2, 1, 0.6]},
     )
-    fig.suptitle("Control vs Odometry Tracking")
+    ax_pos, ax_vel, ax_yaw, ax_run = axes
+    title = "Control vs Odometry Tracking"
+    fig.suptitle(title)
+    if log_id:
+        fig.subplots_adjust(top=0.88)
+        fig.text(0.5, 0.93, f"Log: {log_id}", ha="center", fontsize="medium")
+    ax_pos.set_title("Position Tracking")
 
     colors = {"x": "tab:red", "y": "tab:green", "z": "tab:blue"}
     for component in ("x", "y", "z"):
@@ -178,8 +197,26 @@ def plot_tracking_summary(control_df: pd.DataFrame) -> plt.Figure | None:
 
     ax_pos.set_ylabel("Position (m)")
     ax_pos.legend(loc="upper right", ncol=3, fontsize="small")
-    ax_pos.set_title("Position Tracking")
 
+    for component in ("x", "y", "z"):
+        ax_vel.plot(
+            time,
+            control_df[f"odom_vel_{component}"].to_numpy(dtype=float, copy=False),
+            label=f"odom_{component}",
+            color=colors[component],
+            linestyle="-",
+        )
+        ax_vel.plot(
+            time,
+            control_df[f"cmd_vel_{component}"].to_numpy(dtype=float, copy=False),
+            label=f"cmd_{component}",
+            color=colors[component],
+            linestyle="--",
+        )
+
+    ax_vel.set_ylabel("Velocity (m/s)")
+    ax_vel.legend(loc="upper right", ncol=3, fontsize="small")
+    ax_vel.set_title("Velocity Tracking")
     actual_yaw_rad = _yaw_from_quaternion(
         control_df["odom_quat_x"].to_numpy(dtype=float, copy=False),
         control_df["odom_quat_y"].to_numpy(dtype=float, copy=False),
@@ -234,6 +271,7 @@ def plot_runs(
     control_df: pd.DataFrame,
     plan_df: pd.DataFrame | None,
     runs: list[int],
+    log_id: str = "",
 ) -> plt.Figure | None:
     if control_df.empty:
         print("Control dataframe is empty; skipping 3D path plot.")
@@ -267,6 +305,9 @@ def plot_runs(
 
     fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(111, projection="3d")
+    if log_id:
+        fig.subplots_adjust(top=0.90)
+        fig.text(0.5, 0.94, f"Log: {log_id}", ha="center", fontsize="medium")
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
     ax.set_zlabel("Z (m)")
@@ -288,13 +329,13 @@ def plot_runs(
         [],
         [],
         [],
-        s=120,
+        s=60,
         color="tab:blue",
         edgecolor="k",
         linewidth=0.5,
         alpha=0.9,
         depthshade=False,
-        label="current",
+        label="current position",
     )
     plan_history_proxy = Line2D(
         [0],
@@ -326,7 +367,7 @@ def plot_runs(
         [0],
         color=CURRENT_COMMAND_COLOR,
         linewidth=2.0,
-        label="cmd vector",
+        label="cmd position",
     )
     cmd_history_proxy = Line2D(
         [0],
@@ -334,10 +375,27 @@ def plot_runs(
         color=COMMAND_HISTORY_COLOR,
         linewidth=0.8,
         alpha=0.7,
-        label="cmd history",
+        label="cmd position history",
+    )
+    vel_current_proxy = Line2D(
+        [0],
+        [0],
+        color=CURRENT_COMMAND_VELOCITY_COLOR,
+        linewidth=2.0,
+        label="cmd velocity",
+    )
+    vel_history_proxy = Line2D(
+        [0],
+        [0],
+        color=COMMAND_VELOCITY_HISTORY_COLOR,
+        linewidth=0.8,
+        alpha=0.7,
+        label="cmd velocity history",
     )
     plan_handles = [plan_history_proxy, plan_current_proxy, plan_lookahead_proxy]
+    velocity_handles = [vel_current_proxy, vel_history_proxy]
     legend_handles = [line_odom, cmd_current_proxy, cmd_history_proxy, point_marker]
+    legend_handles.extend(velocity_handles)
     if plan_available:
         legend_handles.extend(plan_handles)
     ax.legend(handles=legend_handles, loc="best")
@@ -352,6 +410,9 @@ def plot_runs(
         "odom_times": np.array([], dtype=float),
         "cmd_coords": (np.array([], dtype=float),) * 3,
         "cmd_times": np.array([], dtype=float),
+        "cmd_vel_coords": (np.array([], dtype=float),) * 3,
+        "velocity_history_quivers": [],
+        "current_velocity_quiver": None,
         "plan_segments": [],
         "plan_sorted_indices": [],
         "plan_always_visible": [],
@@ -388,6 +449,18 @@ def plot_runs(
             btn_next.set_visible(False)
             run_state["current_run_id"] = None
 
+        # Clear previous velocity arrows
+        existing_velocity_quivers = run_state.get("velocity_history_quivers", [])
+        if isinstance(existing_velocity_quivers, list):
+            for quiver_artist in existing_velocity_quivers:
+                if hasattr(quiver_artist, "remove"):
+                    quiver_artist.remove()
+        run_state["velocity_history_quivers"] = []
+        current_velocity_quiver = run_state.get("current_velocity_quiver")
+        if current_velocity_quiver is not None and hasattr(current_velocity_quiver, "remove"):
+            current_velocity_quiver.remove()
+        run_state["current_velocity_quiver"] = None
+
         if plan_available and run_sequence:
             plan_slice = plan_df[plan_df["autonomy_run_idx"] == run_idx]
         elif plan_available:
@@ -401,6 +474,16 @@ def plot_runs(
         cmd_x = run_slice["cmd_pos_x"].to_numpy(dtype=float, copy=False)
         cmd_y = run_slice["cmd_pos_y"].to_numpy(dtype=float, copy=False)
         cmd_z = run_slice["cmd_pos_z"].to_numpy(dtype=float, copy=False)
+        if {
+            "cmd_vel_x",
+            "cmd_vel_y",
+            "cmd_vel_z",
+        }.issubset(run_slice.columns):
+            vel_x = run_slice["cmd_vel_x"].to_numpy(dtype=float, copy=False)
+            vel_y = run_slice["cmd_vel_y"].to_numpy(dtype=float, copy=False)
+            vel_z = run_slice["cmd_vel_z"].to_numpy(dtype=float, copy=False)
+        else:
+            vel_x = vel_y = vel_z = np.array([], dtype=float)
 
         odom_mask = np.isfinite(odom_x) & np.isfinite(odom_y) & np.isfinite(odom_z)
         cmd_mask = np.isfinite(cmd_x) & np.isfinite(cmd_y) & np.isfinite(cmd_z)
@@ -418,8 +501,15 @@ def plot_runs(
             cmd_x_valid = cmd_x[cmd_indices]
             cmd_y_valid = cmd_y[cmd_indices]
             cmd_z_valid = cmd_z[cmd_indices]
+            if vel_x.size:
+                vel_x_valid = vel_x[cmd_indices]
+                vel_y_valid = vel_y[cmd_indices]
+                vel_z_valid = vel_z[cmd_indices]
+            else:
+                vel_x_valid = vel_y_valid = vel_z_valid = np.array([], dtype=float)
         else:
             cmd_x_valid = cmd_y_valid = cmd_z_valid = np.array([], dtype=float)
+            vel_x_valid = vel_y_valid = vel_z_valid = np.array([], dtype=float)
 
         # Clear previous plan artists
         for segment in plan_segments:
@@ -518,6 +608,7 @@ def plot_runs(
         run_state["plan_visible_indices"] = set()
         run_state["odom_coords"] = (odom_x_valid, odom_y_valid, odom_z_valid)
         run_state["cmd_coords"] = (cmd_x_valid, cmd_y_valid, cmd_z_valid)
+        run_state["cmd_vel_coords"] = (vel_x_valid, vel_y_valid, vel_z_valid)
         run_state["position_count"] = int(odom_indices.size)
         time_values = _extract_time_axis(run_slice)
         run_state["odom_times"] = (
@@ -614,6 +705,17 @@ def plot_runs(
             line_odom.set_data([], [])
             line_odom.set_3d_properties([])
 
+        existing_velocity_quivers = run_state.get("velocity_history_quivers", [])
+        if isinstance(existing_velocity_quivers, list):
+            for quiver_artist in existing_velocity_quivers:
+                if hasattr(quiver_artist, "remove"):
+                    quiver_artist.remove()
+        run_state["velocity_history_quivers"] = []
+        current_velocity_quiver = run_state.get("current_velocity_quiver")
+        if current_velocity_quiver is not None and hasattr(current_velocity_quiver, "remove"):
+            current_velocity_quiver.remove()
+        run_state["current_velocity_quiver"] = None
+
         cmd_coords = run_state.get("cmd_coords")
         cmd_times = run_state.get("cmd_times")
         current_time = _current_time()
@@ -690,6 +792,7 @@ def plot_runs(
                 zs_cmd[valid_indices],
             )
         )
+        command_points_full = command_points.copy()
         paired_segments = np.stack((vehicle_points, command_points), axis=1)
         stride = max(1, int(COMMAND_HISTORY_STRIDE))
         if stride > 1 and paired_segments.shape[0] > 1:
@@ -710,6 +813,94 @@ def plot_runs(
             [last_segment[0, 2], last_segment[1, 2]]
         )
         current_command_vector.set_visible(True)
+
+        velocity_coords = run_state.get("cmd_vel_coords")
+        if not (
+            isinstance(velocity_coords, tuple)
+            and len(velocity_coords) == 3
+            and all(isinstance(arr, np.ndarray) for arr in velocity_coords)
+        ):
+            return
+
+        vx_all, vy_all, vz_all = velocity_coords
+        if vx_all.size == 0 or vy_all.size == 0 or vz_all.size == 0:
+            return
+
+        vx_subset = vx_all[:cutoff]
+        vy_subset = vy_all[:cutoff]
+        vz_subset = vz_all[:cutoff]
+        if vx_subset.size == 0:
+            return
+
+        velocity_mask = (
+            finite_mask
+            & np.isfinite(vx_subset)
+            & np.isfinite(vy_subset)
+            & np.isfinite(vz_subset)
+        )
+        velocity_indices = np.nonzero(velocity_mask)[0]
+        if velocity_indices.size == 0:
+            return
+
+        shared_indices = np.intersect1d(
+            valid_indices, velocity_indices, assume_unique=True
+        )
+        if shared_indices.size == 0:
+            return
+
+        mapping = np.searchsorted(valid_indices, shared_indices)
+        starts = command_points_full[mapping]
+        velocity_vectors = np.column_stack(
+            (
+                vx_subset[shared_indices],
+                vy_subset[shared_indices],
+                vz_subset[shared_indices],
+            )
+        )
+
+        history_stride = max(1, int(COMMAND_VELOCITY_STRIDE))
+        indices_order = np.arange(shared_indices.size, dtype=int)
+        history_selector = indices_order[::history_stride]
+        if history_selector.size and history_selector[-1] == indices_order[-1]:
+            history_selector = history_selector[:-1]
+
+        history_quivers: list = []
+        for hist_idx in history_selector:
+            start = starts[hist_idx]
+            vector = velocity_vectors[hist_idx]
+            if not np.all(np.isfinite(vector)):
+                continue
+            quiver_artist = ax.quiver(
+                start[0],
+                start[1],
+                start[2],
+                vector[0],
+                vector[1],
+                vector[2],
+                color=COMMAND_VELOCITY_HISTORY_COLOR,
+                linewidth=0.8,
+                arrow_length_ratio=0.25,
+                alpha=0.7,
+            )
+            history_quivers.append(quiver_artist)
+
+        run_state["velocity_history_quivers"] = history_quivers
+
+        start_current = starts[-1]
+        vector_current = velocity_vectors[-1]
+        if np.all(np.isfinite(vector_current)):
+            current_quiver_artist = ax.quiver(
+                start_current[0],
+                start_current[1],
+                start_current[2],
+                vector_current[0],
+                vector_current[1],
+                vector_current[2],
+                color=CURRENT_COMMAND_VELOCITY_COLOR,
+                linewidth=2.0,
+                arrow_length_ratio=0.25,
+            )
+            run_state["current_velocity_quiver"] = current_quiver_artist
 
     def _refresh_plan_display() -> None:
         segments = run_state.get("plan_segments")
@@ -958,8 +1149,9 @@ def main() -> int:
 
     control_df, plan_df = load_dataframes(directory)
     runs = get_run_sequence(control_df)
-    plot_tracking_summary(control_df)
-    plot_runs(control_df, plan_df, runs)
+    log_id = _extract_log_id(directory)
+    plot_tracking_summary(control_df, log_id=log_id)
+    plot_runs(control_df, plan_df, runs, log_id=log_id)
     plt.show()
     return 0
 
