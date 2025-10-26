@@ -11,8 +11,8 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 
-PLAN_LOOKAHEAD_SEGMENTS = 2
-COMMAND_HISTORY_STRIDE = 5
+PLAN_LOOKAHEAD_SEGMENTS = 1
+COMMAND_HISTORY_STRIDE = 15
 COMMAND_HISTORY_COLOR = "#f28e1c"
 CURRENT_COMMAND_COLOR = "#d55e00"
 PLAN_HISTORY_COLOR = "#2ca02c"
@@ -441,6 +441,13 @@ def plot_runs(
             plan_x_values = plan_slice[plan_x_cols].to_numpy(dtype=float, copy=False)
             plan_y_values = plan_slice[plan_y_cols].to_numpy(dtype=float, copy=False)
             plan_z_values = plan_slice[plan_z_cols].to_numpy(dtype=float, copy=False)
+            run_slice_positions = run_slice[["odom_pos_x", "odom_pos_y", "odom_pos_z"]]
+            if isinstance(run_slice_positions.index, pd.Index):
+                odom_for_plan = run_slice_positions.reindex(
+                    plan_slice.index, method="pad", tolerance=None
+                )
+            else:
+                odom_for_plan = run_slice_positions
 
             for idx_row, (px, py, pz) in enumerate(
                 zip(plan_x_values, plan_y_values, plan_z_values)
@@ -456,18 +463,29 @@ def plot_runs(
                     if idx_row < plan_times.size
                     else float("nan")
                 )
-                plan_bounds.append(np.column_stack((px_valid, py_valid, pz_valid)))
+                origin_point = odom_for_plan.iloc[idx_row].to_numpy(dtype=float, copy=True)
+                if not np.all(np.isfinite(origin_point)):
+                    continue
+                combined_x = np.concatenate(([origin_point[0]], px_valid))
+                combined_y = np.concatenate(([origin_point[1]], py_valid))
+                combined_z = np.concatenate(([origin_point[2]], pz_valid))
+                plan_bounds.append(np.column_stack((combined_x, combined_y, combined_z)))
                 line = ax.plot(
-                    px_valid,
-                    py_valid,
-                    pz_valid,
+                    combined_x,
+                    combined_y,
+                    combined_z,
                     color=PLAN_HISTORY_COLOR,
                     alpha=0.65,
                     linewidth=PLAN_HISTORY_LINEWIDTH,
                 )[0]
                 line.set_visible(False)
                 arrows_raw = _draw_plan_arrow(
-                    ax, px_valid, py_valid, pz_valid, color=PLAN_HISTORY_COLOR, alpha=0.65
+                    ax,
+                    combined_x,
+                    combined_y,
+                    combined_z,
+                    color=PLAN_HISTORY_COLOR,
+                    alpha=0.65,
                 )
                 arrow_list = list(arrows_raw) if arrows_raw else []
                 for arrow_artist in arrow_list:
