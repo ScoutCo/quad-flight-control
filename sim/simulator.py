@@ -29,7 +29,10 @@ class SimulationStep:
 
 
 class Simulator:
-    """First-order filtered position/velocity tracker with simple attitude dynamics."""
+    """Simulates a point-mass quadrotor with second-order translational dynamics driven by
+    a first-order lag on commanded acceleration and a first-order attitude tracker derived
+    from thrust direction.
+    """
 
     def __init__(self, config: SimulatorConfig | None = None) -> None:
         self._config = config or SimulatorConfig()
