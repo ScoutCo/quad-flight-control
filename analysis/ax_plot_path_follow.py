@@ -5,9 +5,23 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from matplotlib import pyplot as plt  # noqa: E402
-from matplotlib.widgets import Button, Slider  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
+from matplotlib import pyplot as plt
+from matplotlib.widgets import Button, Slider
+from matplotlib.lines import Line2D
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+
+PLAN_LOOKAHEAD_SEGMENTS = 2
+COMMAND_HISTORY_STRIDE = 5
+COMMAND_HISTORY_COLOR = "#f28e1c"
+CURRENT_COMMAND_COLOR = "#d55e00"
+PLAN_HISTORY_COLOR = "#2ca02c"
+PLAN_CURRENT_COLOR = "#0c5b2a"
+PLAN_LOOKAHEAD_COLOR = "#8fd18f"
+PLAN_HISTORY_LINEWIDTH = 0.8
+PLAN_CURRENT_LINEWIDTH = 2.0
+PLAN_LOOKAHEAD_LINEWIDTH = 1.0
+PLAN_LOOKAHEAD_LINESTYLE = ":"
 
 
 def find_csv(directory: Path, suffix: str) -> Path:
@@ -61,7 +75,9 @@ def _extract_time_axis(control_df: pd.DataFrame) -> np.ndarray:
     return np.arange(len(control_df), dtype=float)
 
 
-def _yaw_from_quaternion(x: np.ndarray, y: np.ndarray, z: np.ndarray, w: np.ndarray) -> np.ndarray:
+def _yaw_from_quaternion(
+    x: np.ndarray, y: np.ndarray, z: np.ndarray, w: np.ndarray
+) -> np.ndarray:
     siny_cosp = 2.0 * (w * z + x * y)
     cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
     return np.arctan2(siny_cosp, cosy_cosp)
@@ -72,6 +88,9 @@ def _draw_plan_arrow(
     xs: np.ndarray,
     ys: np.ndarray,
     zs: np.ndarray,
+    *,
+    color: str = PLAN_HISTORY_COLOR,
+    alpha: float = 0.7,
 ) -> Optional[object]:
     if xs.size < 2:
         return None
@@ -96,8 +115,8 @@ def _draw_plan_arrow(
             unit_dir[1],
             unit_dir[2],
             length=arrow_length,
-            color="tab:green",
-            alpha=0.9,
+            color=color,
+            alpha=alpha,
             arrow_length_ratio=0.35,
             linewidth=1.0,
         )
@@ -126,7 +145,9 @@ def plot_tracking_summary(control_df: pd.DataFrame) -> plt.Figure | None:
     ]
     missing_columns = [col for col in required_columns if col not in control_df.columns]
     if missing_columns:
-        raise KeyError(f"Missing expected columns in control dataframe: {missing_columns}")
+        raise KeyError(
+            f"Missing expected columns in control dataframe: {missing_columns}"
+        )
 
     time = _extract_time_axis(control_df)
     fig, (ax_pos, ax_yaw, ax_run) = plt.subplots(
@@ -251,7 +272,18 @@ def plot_runs(
     ax.set_zlabel("Z (m)")
 
     line_odom = ax.plot([], [], [], lw=2, color="tab:blue", label="odom")[0]
-    line_cmd = ax.plot([], [], [], lw=2, color="tab:orange", linestyle="--", label="cmd")[0]
+    command_history = Line3DCollection(
+        np.empty((0, 2, 3), dtype=float),
+        colors=(COMMAND_HISTORY_COLOR,),
+        linewidths=(0.8,),
+        alpha=0.7,
+    )
+    ax.add_collection3d(command_history)
+    command_history.set_visible(False)
+    current_command_vector = ax.plot(
+        [], [], [], lw=2.0, color=CURRENT_COMMAND_COLOR
+    )[0]
+    current_command_vector.set_visible(False)
     point_marker = ax.scatter(
         [],
         [],
@@ -264,8 +296,50 @@ def plot_runs(
         depthshade=False,
         label="current",
     )
-    plan_proxy = Line2D([0], [0], color="tab:green", linestyle="-", alpha=0.6, label="plan")
-    legend_handles = [line_odom, line_cmd, point_marker] + ([plan_proxy] if plan_available else [])
+    plan_history_proxy = Line2D(
+        [0],
+        [0],
+        color=PLAN_HISTORY_COLOR,
+        linewidth=PLAN_HISTORY_LINEWIDTH,
+        alpha=0.65,
+        label="plan history",
+    )
+    plan_current_proxy = Line2D(
+        [0],
+        [0],
+        color=PLAN_CURRENT_COLOR,
+        linewidth=PLAN_CURRENT_LINEWIDTH,
+        alpha=0.9,
+        label="plan current",
+    )
+    plan_lookahead_proxy = Line2D(
+        [0],
+        [0],
+        color=PLAN_LOOKAHEAD_COLOR,
+        linewidth=PLAN_LOOKAHEAD_LINEWIDTH,
+        linestyle=PLAN_LOOKAHEAD_LINESTYLE,
+        alpha=0.8,
+        label="plan lookahead",
+    )
+    cmd_current_proxy = Line2D(
+        [0],
+        [0],
+        color=CURRENT_COMMAND_COLOR,
+        linewidth=2.0,
+        label="cmd vector",
+    )
+    cmd_history_proxy = Line2D(
+        [0],
+        [0],
+        color=COMMAND_HISTORY_COLOR,
+        linewidth=0.8,
+        alpha=0.7,
+        label="cmd history",
+    )
+    plan_handles = [plan_history_proxy, plan_current_proxy, plan_lookahead_proxy]
+    legend_handles = [line_odom, cmd_current_proxy, cmd_history_proxy, point_marker]
+    if plan_available:
+        legend_handles.extend(plan_handles)
     ax.legend(handles=legend_handles, loc="best")
     title = ax.set_title("Autonomy Run")
 
@@ -278,17 +352,20 @@ def plot_runs(
         "odom_times": np.array([], dtype=float),
         "cmd_coords": (np.array([], dtype=float),) * 3,
         "cmd_times": np.array([], dtype=float),
-        "plan_entries": [],
+        "plan_segments": [],
+        "plan_sorted_indices": [],
+        "plan_always_visible": [],
+        "plan_visible_indices": set(),
+        "plan_needs_refresh": False,
         "title": "All samples",
         "position_count": 0,
         "slider": None,
         "suppress_slider_callback": False,
     }
-    plan_lines: list = []
-    plan_arrows: list[list[object]] = []
+    plan_segments: list[dict[str, object]] = []
 
     def update_plot(run_idx: Optional[int] = None) -> None:
-        nonlocal plan_lines, plan_arrows
+        nonlocal plan_segments
         run_sequence = run_state["runs"]
         label = "All samples"
         if run_sequence:
@@ -311,7 +388,6 @@ def plot_runs(
             btn_next.set_visible(False)
             run_state["current_run_id"] = None
 
-        plan_entries: list[dict[str, np.ndarray | float]] = []
         if plan_available and run_sequence:
             plan_slice = plan_df[plan_df["autonomy_run_idx"] == run_idx]
         elif plan_available:
@@ -345,16 +421,18 @@ def plot_runs(
         else:
             cmd_x_valid = cmd_y_valid = cmd_z_valid = np.array([], dtype=float)
 
-        # Clear previous plan lines
-        for line in plan_lines:
-            line.remove()
-        plan_lines = []
-        for arrow_group in plan_arrows:
-            for arrow in arrow_group:
-                arrow.remove()
-        plan_arrows = []
+        # Clear previous plan artists
+        for segment in plan_segments:
+            line_artist = segment.get("line")
+            if hasattr(line_artist, "remove"):
+                line_artist.remove()
+            for arrow_artist in segment.get("arrows", []):
+                if hasattr(arrow_artist, "remove"):
+                    arrow_artist.remove()
+        plan_segments = []
 
         plan_bounds: list[np.ndarray] = []
+        new_plan_segments: list[dict[str, object]] = []
         if plan_slice is not None and not plan_slice.empty:
             plan_times = plan_slice.index.to_numpy(dtype=float, copy=False)
             plan_x_cols = [f"step{idx}_x" for idx in step_indices]
@@ -373,23 +451,61 @@ def plot_runs(
                 px_valid = px[valid]
                 py_valid = py[valid]
                 pz_valid = pz[valid]
-                plan_entries.append(
-                    {
-                        "time": float(plan_times[idx_row]) if idx_row < plan_times.size else float("nan"),
-                        "x": px_valid,
-                        "y": py_valid,
-                        "z": pz_valid,
-                    }
+                entry_time = (
+                    float(plan_times[idx_row])
+                    if idx_row < plan_times.size
+                    else float("nan")
                 )
                 plan_bounds.append(np.column_stack((px_valid, py_valid, pz_valid)))
+                line = ax.plot(
+                    px_valid,
+                    py_valid,
+                    pz_valid,
+                    color=PLAN_HISTORY_COLOR,
+                    alpha=0.65,
+                    linewidth=PLAN_HISTORY_LINEWIDTH,
+                )[0]
+                line.set_visible(False)
+                arrows_raw = _draw_plan_arrow(
+                    ax, px_valid, py_valid, pz_valid, color=PLAN_HISTORY_COLOR, alpha=0.65
+                )
+                arrow_list = list(arrows_raw) if arrows_raw else []
+                for arrow_artist in arrow_list:
+                    if hasattr(arrow_artist, "set_visible"):
+                        arrow_artist.set_visible(False)
+                new_plan_segments.append(
+                    {
+                        "time": entry_time,
+                        "line": line,
+                        "arrows": arrow_list,
+                    }
+                )
 
-        run_state["plan_entries"] = plan_entries
+        plan_segments = new_plan_segments
+
+        run_state["plan_segments"] = plan_segments
+        finite_indices = [
+            idx
+            for idx, segment in enumerate(plan_segments)
+            if np.isfinite(float(segment.get("time", float("nan"))))
+        ]
+        finite_indices.sort(key=lambda idx: float(plan_segments[idx]["time"]))
+        always_visible = [
+            idx
+            for idx, segment in enumerate(plan_segments)
+            if not np.isfinite(float(segment.get("time", float("nan"))))
+        ]
+        run_state["plan_sorted_indices"] = finite_indices
+        run_state["plan_always_visible"] = always_visible
+        run_state["plan_visible_indices"] = set()
         run_state["odom_coords"] = (odom_x_valid, odom_y_valid, odom_z_valid)
         run_state["cmd_coords"] = (cmd_x_valid, cmd_y_valid, cmd_z_valid)
         run_state["position_count"] = int(odom_indices.size)
         time_values = _extract_time_axis(run_slice)
         run_state["odom_times"] = (
-            time_values[odom_indices] if odom_indices.size else np.array([], dtype=float)
+            time_values[odom_indices]
+            if odom_indices.size
+            else np.array([], dtype=float)
         )
         run_state["cmd_times"] = (
             time_values[cmd_indices] if cmd_indices.size else np.array([], dtype=float)
@@ -408,7 +524,9 @@ def plot_runs(
                 np.column_stack((odom_x_valid, odom_y_valid, odom_z_valid))
             )
         if cmd_x_valid.size:
-            bounds_components.append(np.column_stack((cmd_x_valid, cmd_y_valid, cmd_z_valid)))
+            bounds_components.append(
+                np.column_stack((cmd_x_valid, cmd_y_valid, cmd_z_valid))
+            )
         bounds_components.extend(plan_bounds)
         combined = (
             np.vstack(bounds_components)
@@ -439,7 +557,9 @@ def plot_runs(
         upper = center + half_range
         ax.set_xlim(lower[0], upper[0])
         ax.set_ylim(lower[1], upper[1])
-        ax.set_zlim(upper[2], lower[2])  # In NED frame, smaller (more negative) values are higher altitude
+        ax.set_zlim(
+            upper[2], lower[2]
+        )  # In NED frame, smaller (more negative) values are higher altitude
         try:
             ax.set_box_aspect((1.0, 1.0, 1.0))
         except AttributeError:
@@ -458,17 +578,20 @@ def plot_runs(
         return None
 
     def _update_control_history() -> None:
-        coords = run_state.get("odom_coords")
         idx = int(run_state.get("position_index", 0))
+        coords = run_state.get("odom_coords")
+        xs_vehicle = np.array([], dtype=float)
+        ys_vehicle = np.array([], dtype=float)
+        zs_vehicle = np.array([], dtype=float)
         if (
             isinstance(coords, tuple)
             and len(coords) == 3
             and all(isinstance(arr, np.ndarray) for arr in coords)
         ):
-            xs, ys, zs = coords
-            upto = min(idx + 1, xs.size)
-            line_odom.set_data(xs[:upto], ys[:upto])
-            line_odom.set_3d_properties(zs[:upto])
+            xs_vehicle, ys_vehicle, zs_vehicle = coords
+            upto = min(idx + 1, xs_vehicle.size)
+            line_odom.set_data(xs_vehicle[:upto], ys_vehicle[:upto])
+            line_odom.set_3d_properties(zs_vehicle[:upto])
         else:
             line_odom.set_data([], [])
             line_odom.set_3d_properties([])
@@ -476,88 +599,207 @@ def plot_runs(
         cmd_coords = run_state.get("cmd_coords")
         cmd_times = run_state.get("cmd_times")
         current_time = _current_time()
-        if (
+        odom_times = run_state.get("odom_times")
+        if not (
             isinstance(cmd_coords, tuple)
             and len(cmd_coords) == 3
             and all(isinstance(arr, np.ndarray) for arr in cmd_coords)
+            and isinstance(cmd_times, np.ndarray)
+            and isinstance(xs_vehicle, np.ndarray)
         ):
-            xs, ys, zs = cmd_coords
-            if xs.size == 0:
-                line_cmd.set_data([], [])
-                line_cmd.set_3d_properties([])
-            else:
-                if isinstance(cmd_times, np.ndarray) and cmd_times.size == xs.size and current_time is not None:
-                    cutoff = int(np.searchsorted(cmd_times, current_time + 1e-9, side="right"))
-                else:
-                    cutoff = min(idx + 1, xs.size)
-                cutoff = max(0, min(xs.size, cutoff))
-                line_cmd.set_data(xs[:cutoff], ys[:cutoff])
-                line_cmd.set_3d_properties(zs[:cutoff])
+            command_history.set_segments([])
+            command_history.set_visible(False)
+            current_command_vector.set_data([], [])
+            current_command_vector.set_3d_properties([])
+            current_command_vector.set_visible(False)
+            return
+
+        xs_cmd, ys_cmd, zs_cmd = cmd_coords
+        if xs_cmd.size == 0 or xs_vehicle.size == 0:
+            command_history.set_segments([])
+            command_history.set_visible(False)
+            current_command_vector.set_data([], [])
+            current_command_vector.set_3d_properties([])
+            current_command_vector.set_visible(False)
+            return
+
+        if current_time is not None and np.isfinite(current_time):
+            cutoff = int(np.searchsorted(cmd_times, current_time + 1e-9, side="right"))
         else:
-            line_cmd.set_data([], [])
-            line_cmd.set_3d_properties([])
+            cutoff = min(idx + 1, xs_cmd.size)
+        cutoff = max(0, min(xs_cmd.size, cutoff))
+        if cutoff <= 0:
+            command_history.set_segments([])
+            command_history.set_visible(False)
+            current_command_vector.set_data([], [])
+            current_command_vector.set_3d_properties([])
+            current_command_vector.set_visible(False)
+            return
+
+        finite_mask = (
+            np.isfinite(xs_cmd[:cutoff])
+            & np.isfinite(ys_cmd[:cutoff])
+            & np.isfinite(zs_cmd[:cutoff])
+        )
+        finite_mask &= np.isfinite(cmd_times[:cutoff])
+        valid_indices = np.nonzero(finite_mask)[0]
+        if valid_indices.size == 0:
+            command_history.set_segments([])
+            command_history.set_visible(False)
+            current_command_vector.set_data([], [])
+            current_command_vector.set_3d_properties([])
+            current_command_vector.set_visible(False)
+            return
+
+        cmd_times_valid = cmd_times[valid_indices]
+        if isinstance(odom_times, np.ndarray) and odom_times.size:
+            vehicle_indices = np.searchsorted(odom_times, cmd_times_valid, side="right") - 1
+            vehicle_indices = np.clip(vehicle_indices, 0, odom_times.size - 1)
+        else:
+            vehicle_indices = np.clip(valid_indices, 0, xs_vehicle.size - 1)
+
+        vehicle_points = np.column_stack(
+            (
+                xs_vehicle[vehicle_indices],
+                ys_vehicle[vehicle_indices],
+                zs_vehicle[vehicle_indices],
+            )
+        )
+        command_points = np.column_stack(
+            (
+                xs_cmd[valid_indices],
+                ys_cmd[valid_indices],
+                zs_cmd[valid_indices],
+            )
+        )
+        paired_segments = np.stack((vehicle_points, command_points), axis=1)
+        stride = max(1, int(COMMAND_HISTORY_STRIDE))
+        if stride > 1 and paired_segments.shape[0] > 1:
+            selector = np.arange(paired_segments.shape[0], dtype=int)[::stride]
+            if selector[-1] != paired_segments.shape[0] - 1:
+                selector = np.append(selector, paired_segments.shape[0] - 1)
+            paired_segments = paired_segments[selector]
+
+        command_history.set_segments(paired_segments)
+        command_history.set_visible(True)
+
+        last_segment = paired_segments[-1]
+        current_command_vector.set_data(
+            [last_segment[0, 0], last_segment[1, 0]],
+            [last_segment[0, 1], last_segment[1, 1]],
+        )
+        current_command_vector.set_3d_properties(
+            [last_segment[0, 2], last_segment[1, 2]]
+        )
+        current_command_vector.set_visible(True)
 
     def _refresh_plan_display() -> None:
-        nonlocal plan_lines, plan_arrows
-        for line in plan_lines:
-            line.remove()
-        for arrow_group in plan_arrows:
-            for arrow in arrow_group:
-                arrow.remove()
-        plan_lines = []
-        plan_arrows = []
-
-        entries = run_state.get("plan_entries")
-        if not isinstance(entries, list) or not entries:
+        segments = run_state.get("plan_segments")
+        if not isinstance(segments, list) or not segments:
             return
 
-        finite_entries = [
-            entry
-            for entry in entries
-            if isinstance(entry, dict) and np.isfinite(entry.get("time", float("nan")))
-        ]
-        if not finite_entries:
-            return
+        def _apply_plan_style(line_artist, arrows, category: str) -> None:
+            if not hasattr(line_artist, "set_color"):
+                return
+            if category == "current":
+                color = PLAN_CURRENT_COLOR
+                linewidth = PLAN_CURRENT_LINEWIDTH
+                linestyle = "-"
+                alpha = 0.9
+            elif category == "lookahead":
+                color = PLAN_LOOKAHEAD_COLOR
+                linewidth = PLAN_LOOKAHEAD_LINEWIDTH
+                linestyle = PLAN_LOOKAHEAD_LINESTYLE
+                alpha = 0.75
+            else:
+                color = PLAN_HISTORY_COLOR
+                linewidth = PLAN_HISTORY_LINEWIDTH
+                linestyle = "-"
+                alpha = 0.65
 
-        finite_entries.sort(key=lambda entry: float(entry["time"]))
-        times = np.array([float(entry["time"]) for entry in finite_entries], dtype=float)
+            line_artist.set_color(color)
+            line_artist.set_linewidth(linewidth)
+            line_artist.set_linestyle(linestyle)
+            if hasattr(line_artist, "set_alpha"):
+                line_artist.set_alpha(alpha)
+
+            for arrow_artist in arrows:
+                if hasattr(arrow_artist, "set_color"):
+                    arrow_artist.set_color(color)
+                if hasattr(arrow_artist, "set_alpha"):
+                    arrow_artist.set_alpha(alpha)
+
         current_time = _current_time()
-        if current_time is None:
-            center_idx = 0
+        sorted_indices = run_state.get("plan_sorted_indices", [])
+        always_visible = run_state.get("plan_always_visible", [])
+
+        desired_visible: set[int] = set(always_visible)
+        history_indices: set[int] = set(always_visible)
+        lookahead_indices: set[int] = set()
+        current_index: Optional[int] = None
+
+        if not sorted_indices:
+            history_indices.update(range(len(segments)))
+            desired_visible.update(history_indices)
         else:
-            center_idx = int(np.searchsorted(times, current_time, side="right"))
-            if center_idx >= len(times):
-                center_idx = len(times) - 1
-            elif center_idx > 0:
-                prev_time = times[center_idx - 1]
-                next_time = times[center_idx] if center_idx < len(times) else times[-1]
-                if abs(current_time - prev_time) <= abs(next_time - current_time):
-                    center_idx -= 1
+            sorted_times = np.array(
+                [
+                    float(segments[idx].get("time", float("nan")))
+                    for idx in sorted_indices
+                ],
+                dtype=float,
+            )
+            if current_time is None or not np.isfinite(current_time):
+                history_count = len(sorted_indices)
+            else:
+                history_count = int(
+                    np.searchsorted(sorted_times, current_time + 1e-9, side="right")
+                )
+                history_count = max(0, min(len(sorted_indices), history_count))
 
-        start = max(0, center_idx - 5)
-        end = min(len(finite_entries), center_idx + 5 + 1)
-        for entry in finite_entries[start:end]:
-            xs = np.asarray(entry["x"], dtype=float)
-            ys = np.asarray(entry["y"], dtype=float)
-            zs = np.asarray(entry["z"], dtype=float)
-            if xs.size == 0 or ys.size == 0 or zs.size == 0:
+            if history_count > 0:
+                history_indices.update(sorted_indices[: history_count - 1])
+                current_index = sorted_indices[history_count - 1]
+                desired_visible.update(sorted_indices[:history_count])
+            else:
+                current_index = None
+
+            if PLAN_LOOKAHEAD_SEGMENTS > 0:
+                lookahead_end = min(
+                    len(sorted_indices), history_count + PLAN_LOOKAHEAD_SEGMENTS
+                )
+                lookahead_slice = sorted_indices[history_count:lookahead_end]
+                lookahead_indices.update(lookahead_slice)
+                desired_visible.update(lookahead_slice)
+
+        run_state["plan_visible_indices"] = desired_visible
+
+        for idx, segment in enumerate(segments):
+            visible = idx in desired_visible
+            line_artist = segment.get("line")
+            arrows = segment.get("arrows", [])
+            if hasattr(line_artist, "set_visible"):
+                line_artist.set_visible(visible)
+            for arrow_artist in arrows:
+                if hasattr(arrow_artist, "set_visible"):
+                    arrow_artist.set_visible(visible)
+            if not visible:
                 continue
-            line = ax.plot(
-                xs,
-                ys,
-                zs,
-                color="tab:green",
-                alpha=0.8,
-                linewidth=1.4,
-            )[0]
-            plan_lines.append(line)
-            arrows = _draw_plan_arrow(ax, xs, ys, zs)
-            if arrows:
-                plan_arrows.append(arrows)
 
-    def update_position_marker() -> None:
+            if idx == current_index:
+                _apply_plan_style(line_artist, arrows, "current")
+            elif idx in lookahead_indices:
+                _apply_plan_style(line_artist, arrows, "lookahead")
+            else:
+                _apply_plan_style(line_artist, arrows, "history")
+
+    def update_position_marker(refresh_plan: bool = True) -> None:
         _update_control_history()
-        _refresh_plan_display()
+        if refresh_plan:
+            _refresh_plan_display()
+            run_state["plan_needs_refresh"] = False
+        else:
+            run_state["plan_needs_refresh"] = True
 
         odom_coords = run_state.get("odom_coords")
         title_text = run_state.get("title", "")
@@ -606,7 +848,7 @@ def plot_runs(
             index = int(round(val * (count - 1)))
             index = max(0, min(count - 1, index))
             run_state["position_index"] = index
-        update_position_marker()
+        update_position_marker(refresh_plan=False)
         slider = run_state.get("slider")
         if isinstance(slider, Slider):
             slider.valtext.set_text(str(run_state["position_index"]))
@@ -663,6 +905,14 @@ def plot_runs(
     )
     slider.on_changed(on_slider_change)
     run_state["slider"] = slider
+
+    def on_mouse_release(event) -> None:
+        if event.inaxes is slider_ax and run_state.get("plan_needs_refresh"):
+            _refresh_plan_display()
+            run_state["plan_needs_refresh"] = False
+            fig.canvas.draw_idle()
+
+    fig.canvas.mpl_connect("button_release_event", on_mouse_release)
 
     # Initial plot
     update_plot()
