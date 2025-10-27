@@ -50,8 +50,8 @@ def load_dataframes(directory: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         control_df = control_df.set_index("time_s")
 
     plan_df = pd.read_csv(plan_path)
-    if "plan_time_s" in plan_df.columns:
-        plan_df = plan_df.set_index("plan_time_s")
+    if "recv_time_s" in plan_df.columns:
+        plan_df = plan_df.set_index("recv_time_s")
 
     return control_df, plan_df
 
