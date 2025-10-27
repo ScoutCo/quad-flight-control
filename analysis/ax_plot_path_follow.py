@@ -26,6 +26,8 @@ PLAN_HISTORY_LINEWIDTH = 0.8
 PLAN_CURRENT_LINEWIDTH = 2.0
 PLAN_LOOKAHEAD_LINEWIDTH = 1.0
 PLAN_LOOKAHEAD_LINESTYLE = ":"
+ANIMATION_TIME_SCALE = 1.0
+ANIMATION_MIN_INTERVAL_SECONDS = 0.02
 
 
 def find_csv(directory: Path, suffix: str) -> Path:
@@ -313,7 +315,7 @@ def plot_runs(
     ax.set_ylabel("Y (m)")
     ax.set_zlabel("Z (m)")
 
-    line_odom = ax.plot([], [], [], lw=2, color="tab:blue", label="odom")[0]
+    line_odom = ax.plot([], [], [], lw=2, color="tab:blue", label="actual path")[0]
     command_history = Line3DCollection(
         np.empty((0, 2, 3), dtype=float),
         colors=(COMMAND_HISTORY_COLOR,),
@@ -423,11 +425,117 @@ def plot_runs(
         "position_count": 0,
         "slider": None,
         "suppress_slider_callback": False,
+        "animation_timer": None,
+        "animation_running": False,
+        "play_button": None,
     }
     plan_segments: list[dict[str, object]] = []
 
+    def _update_play_button_label() -> None:
+        button = run_state.get("play_button")
+        if not isinstance(button, Button):
+            return
+        label_text = "Pause ⏸" if run_state.get("animation_running") else "Play ▶"
+        if button.label.get_text() != label_text:
+            button.label.set_text(label_text)
+            fig.canvas.draw_idle()
+
+    def _refresh_play_button_state() -> None:
+        button = run_state.get("play_button")
+        if not isinstance(button, Button):
+            return
+        count = int(run_state.get("position_count", 0))
+        button.set_active(count > 1)
+        if count <= 1 and run_state.get("animation_running"):
+            run_state["animation_running"] = False
+        _update_play_button_label()
+
+    def _stop_animation() -> None:
+        timer = run_state.get("animation_timer")
+        if timer is not None and hasattr(timer, "stop"):
+            timer.stop()
+        run_state["animation_running"] = False
+        _update_play_button_label()
+
+    def _compute_next_interval_ms() -> float | None:
+        if not run_state.get("animation_running"):
+            return None
+        count = int(run_state.get("position_count", 0))
+        if count <= 1:
+            return None
+        idx = int(run_state.get("position_index", 0))
+        if idx >= count - 1:
+            return None
+        times = run_state.get("odom_times")
+        dt_seconds = float("nan")
+        if isinstance(times, np.ndarray) and times.size > idx + 1:
+            current_time = float(times[idx])
+            next_time = float(times[idx + 1])
+            if np.isfinite(current_time) and np.isfinite(next_time):
+                dt_seconds = max(0.0, next_time - current_time)
+        if not np.isfinite(dt_seconds) or dt_seconds <= 0.0:
+            dt_seconds = ANIMATION_MIN_INTERVAL_SECONDS
+        speed = max(ANIMATION_TIME_SCALE, 1e-6)
+        interval_seconds = max(dt_seconds / speed, ANIMATION_MIN_INTERVAL_SECONDS)
+        return interval_seconds * 1000.0
+
+    def _ensure_animation_timer():
+        timer = run_state.get("animation_timer")
+        if timer is None:
+            timer = fig.canvas.new_timer(interval=int(ANIMATION_MIN_INTERVAL_SECONDS * 1000))
+            timer.single_shot = True
+            timer.add_callback(_on_animation_tick)
+            run_state["animation_timer"] = timer
+        return timer
+
+    def _schedule_next_frame() -> None:
+        if not run_state.get("animation_running"):
+            return
+        interval_ms = _compute_next_interval_ms()
+        if interval_ms is None:
+            _stop_animation()
+            return
+        timer = _ensure_animation_timer()
+        timer.interval = max(1, int(interval_ms))
+        timer.single_shot = True
+        if hasattr(timer, "stop"):
+            timer.stop()
+        timer.start()
+
+    def _on_animation_tick() -> None:
+        if not run_state.get("animation_running"):
+            return
+        count = int(run_state.get("position_count", 0))
+        if count <= 1:
+            _stop_animation()
+            return
+        idx = int(run_state.get("position_index", 0))
+        if idx >= count - 1:
+            _stop_animation()
+            return
+        run_state["position_index"] = idx + 1
+        update_position_marker()
+        _update_slider_state()
+        _schedule_next_frame()
+
+    def _start_animation() -> None:
+        count = int(run_state.get("position_count", 0))
+        if count <= 1:
+            return
+        if run_state.get("animation_running"):
+            return
+        idx = int(run_state.get("position_index", 0))
+        if idx >= count - 1:
+            run_state["position_index"] = 0
+            update_position_marker()
+            _update_slider_state()
+        run_state["animation_running"] = True
+        _update_play_button_label()
+        _schedule_next_frame()
+
     def update_plot(run_idx: Optional[int] = None) -> None:
         nonlocal plan_segments
+        _stop_animation()
         run_sequence = run_state["runs"]
         label = "All samples"
         if run_sequence:
@@ -1046,9 +1154,17 @@ def plot_runs(
         run_state["index"] = (run_state["index"] - 1) % len(run_state["runs"])
         update_plot()
 
+    def on_play(event: Optional[object]) -> None:
+        if run_state.get("animation_running"):
+            _stop_animation()
+        else:
+            _start_animation()
+
     def on_slider_change(val: float) -> None:
         if run_state.get("suppress_slider_callback"):
             return
+        if run_state.get("animation_running"):
+            _stop_animation()
         count = int(run_state.get("position_count", 0))
         if count <= 0:
             run_state["position_index"] = 0
@@ -1092,17 +1208,23 @@ def plot_runs(
                 slider.valtext.set_text(str(index))
         finally:
             run_state["suppress_slider_callback"] = False
+        _refresh_play_button_state()
 
     # Button layout
     btn_ax_prev = fig.add_axes([0.18, 0.08, 0.18, 0.05])
+    btn_ax_play = fig.add_axes([0.41, 0.08, 0.18, 0.05])
     btn_ax_next = fig.add_axes([0.64, 0.08, 0.18, 0.05])
     slider_ax = fig.add_axes([0.20, 0.02, 0.60, 0.03])
     run_state["slider_ax"] = slider_ax
 
     btn_prev = Button(btn_ax_prev, "Run ◀")
+    btn_play = Button(btn_ax_play, "Play ▶")
     btn_next = Button(btn_ax_next, "Run ▶")
+    run_state["play_button"] = btn_play
+    _refresh_play_button_state()
 
     btn_prev.on_clicked(on_prev)
+    btn_play.on_clicked(on_play)
     btn_next.on_clicked(on_next)
 
     slider = Slider(
