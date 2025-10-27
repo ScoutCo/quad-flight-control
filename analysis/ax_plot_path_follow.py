@@ -633,17 +633,27 @@ def plot_runs(
         plan_bounds: list[np.ndarray] = []
         new_plan_segments: list[dict[str, object]] = []
         if plan_slice is not None and not plan_slice.empty:
-            plan_times = plan_slice.index.to_numpy(dtype=float, copy=False)
+            run_slice_positions = run_slice[["odom_pos_x", "odom_pos_y", "odom_pos_z"]]
+            index_name = (
+                run_slice_positions.index.name
+                if isinstance(run_slice_positions.index, pd.Index)
+                else None
+            )
+            if "plan_time_s" in plan_slice.columns:
+                plan_times = plan_slice["plan_time_s"].to_numpy(dtype=float, copy=False)
+                reindex_target = pd.Index(plan_times, name=index_name)
+            else:
+                plan_times = plan_slice.index.to_numpy(dtype=float, copy=False)
+                reindex_target = plan_slice.index
             plan_x_cols = [f"step{idx}_x" for idx in step_indices]
             plan_y_cols = [f"step{idx}_y" for idx in step_indices]
             plan_z_cols = [f"step{idx}_z" for idx in step_indices]
             plan_x_values = plan_slice[plan_x_cols].to_numpy(dtype=float, copy=False)
             plan_y_values = plan_slice[plan_y_cols].to_numpy(dtype=float, copy=False)
             plan_z_values = plan_slice[plan_z_cols].to_numpy(dtype=float, copy=False)
-            run_slice_positions = run_slice[["odom_pos_x", "odom_pos_y", "odom_pos_z"]]
             if isinstance(run_slice_positions.index, pd.Index):
                 odom_for_plan = run_slice_positions.reindex(
-                    plan_slice.index, method="pad", tolerance=None
+                    reindex_target, method="pad", tolerance=None
                 )
             else:
                 odom_for_plan = run_slice_positions
