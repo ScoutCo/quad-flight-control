@@ -1,3 +1,8 @@
+# Use setuptools for packaging
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "analysis"
 version = "0.1.0"
@@ -16,6 +21,9 @@ dependencies = [
     "scipy>=1.16.2",
     "packaging>=23.0",
 ]
+
+[tool.setuptools]
+packages = ["sim", "common", "path_follower"]
 
 [dependency-groups]
 dev = [
