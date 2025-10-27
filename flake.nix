@@ -5,12 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
     flake-utils.url = "github:numtide/flake-utils";
   };
-
-  nixConfig = {
-    extra-experimental-features = "nix-command flakes";
-    allow-dirty = true;
-  };
-
+  
   outputs =
     {
       self,
@@ -26,15 +21,22 @@
       {
         devShells.default = pkgs.mkShell {
           packages = [
+            pkgs.git
             pythonEnv
-            pkgs.uv
+            pkgs.stdenv.cc.cc.lib
           ];
 
           shellHook = ''
+            if [ -n "$LD_LIBRARY_PATH" ]; then
+              export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
+            else
+              export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib"
+            fi
             if [ ! -d .venv ]; then
               python -m venv .venv
               source .venv/bin/activate
-              uv sync
+              python -m pip install --upgrade pip
+              python -m pip install -e ".[dev]"
             else
               source .venv/bin/activate
             fi
