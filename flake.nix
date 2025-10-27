@@ -5,12 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
     flake-utils.url = "github:numtide/flake-utils";
   };
-
-  nixConfig = {
-    extra-experimental-features = "nix-command flakes";
-    allow-dirty = true;
-  };
-
+  
   outputs =
     {
       self,
