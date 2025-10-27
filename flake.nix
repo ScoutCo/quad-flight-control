@@ -27,7 +27,11 @@
           ];
 
           shellHook = ''
-            export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            if [ -n "$LD_LIBRARY_PATH" ]; then
+              export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
+            else
+              export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib"
+            fi
             if [ ! -d .venv ]; then
               python -m venv .venv
               source .venv/bin/activate
