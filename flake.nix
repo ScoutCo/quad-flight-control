@@ -23,9 +23,11 @@
           packages = [
             pkgs.git
             pythonEnv
+            pkgs.stdenv.cc.cc.lib
           ];
 
           shellHook = ''
+            export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
             if [ ! -d .venv ]; then
               python -m venv .venv
               source .venv/bin/activate
