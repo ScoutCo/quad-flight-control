@@ -4,9 +4,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "analysis"
+name = "quad-flight-control"
 version = "0.1.0"
-description = "Add your description here"
+description = "Tools for quadrotor flight controls and simulation"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -25,9 +25,5 @@ dependencies = [
 [tool.setuptools]
 packages = ["sim", "common", "path_follower"]
 
-[dependency-groups]
-dev = [
-    "ipykernel>=7.0.0",
-    "jupyterlab>=4.4.9",
-    "ruff>=0.14.2",
-]
+[project.optional-dependencies]
+dev = ["ipykernel>=7.0.0", "jupyterlab>=4.4.9", "ruff>=0.14.2"]

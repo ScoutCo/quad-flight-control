@@ -23,14 +23,14 @@
           packages = [
             pkgs.git
             pythonEnv
-            pkgs.uv
           ];
 
           shellHook = ''
             if [ ! -d .venv ]; then
               python -m venv .venv
               source .venv/bin/activate
-              uv sync
+              python -m pip install --upgrade pip
+              python -m pip install -e ".[dev]"
             else
               source .venv/bin/activate
             fi
