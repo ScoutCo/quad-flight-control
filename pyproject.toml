@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["sim", "common", "path_follower"]
+packages = ["quad_flight_control"]
 
 [project.optional-dependencies]
 dev = ["ipykernel>=7.0.0", "jupyterlab>=4.4.0", "ruff>=0.14.2"]

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from collections.abc import Iterable, Iterator, Sequence
-from typing import Protocol, Self
+from typing import Protocol
 
 import numpy as np
 
@@ -58,7 +58,7 @@ class Plan:
     def duration_s(self) -> float:
         return self.end_time_s - self.start_time_s
 
-    def copy_with_states(self, states: Iterable[PlanState]) -> Self:
+    def copy_with_states(self, states: Iterable[PlanState]) -> "Plan":
         """Return a shallow copy with a new set of states."""
         return Plan(tuple(states), self.timestamp_s, self.frame_id)
 

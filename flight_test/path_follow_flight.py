@@ -31,11 +31,11 @@ from mavsdk import System
 from mavsdk.action import ActionError
 from mavsdk.offboard import OffboardError, PositionNedYaw, VelocityNedYaw
 
-from common import (
+from quad_flight_control.common import (
     Trajectory,
     zigzag_trajectory,
 )
-from path_follower import (
+from quad_flight_control.path_follower import (
     DEFAULT_PLAN_LOOKAHEAD_OFFSETS,
     PathFollowerConfig,
     PathFollowerException,

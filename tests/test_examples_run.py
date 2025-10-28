@@ -11,8 +11,8 @@ from examples import (
     sinusoid_trajectory,
     zigzag_trajectory,
 )
-from common import Trajectory
-from sim.math_utils import quat_to_euler
+from quad_flight_control.common import Trajectory
+from quad_flight_control.sim.math_utils import quat_to_euler
 
 
 TrajectoryFactory = Callable[[], Trajectory]

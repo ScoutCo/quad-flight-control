@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import Self
 
 import numpy as np
 
@@ -15,7 +14,7 @@ class State:
     )
     angular_velocity_body: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=float))
 
-    def copy(self) -> Self:
+    def copy(self) -> "State":
         return State(
             position_ned=self.position_ned.copy(),
             velocity_ned=self.velocity_ned.copy(),

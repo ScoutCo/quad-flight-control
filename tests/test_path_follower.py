@@ -11,10 +11,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from path_follower.config import PathFollowerConfig
-from path_follower.path_follower import PathFollowerException, PositionVelocityPathFollower
-from path_follower.plan import Plan, PlanState
-from sim import Simulator, SimulatorConfig, TelemetryLogger
+from quad_flight_control.path_follower.config import PathFollowerConfig
+from quad_flight_control.path_follower.path_follower import PathFollowerException, PositionVelocityPathFollower
+from quad_flight_control.path_follower.plan import Plan, PlanState
+from quad_flight_control.sim import Simulator, SimulatorConfig, TelemetryLogger
 
 
 def _build_line_plan() -> Plan:

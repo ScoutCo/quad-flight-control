@@ -11,14 +11,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from sim import (
+from quad_flight_control.sim import (
     PositionVelocityCommand,
     Simulator,
     SimulatorConfig,
     TelemetryLogger,
 )
-from sim import quat_to_euler
-from sim.math_utils import quat_to_rotation_matrix, rotation_matrix_to_quat
+from quad_flight_control.sim import quat_to_euler
+from quad_flight_control.sim.math_utils import quat_to_rotation_matrix, rotation_matrix_to_quat
 
 
 def test_constant_velocity_command_reached() -> None:

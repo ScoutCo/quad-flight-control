@@ -1,6 +1,6 @@
 """Lightweight example scripts for the simulator path follower demos."""
 
-from common import (
+from quad_flight_control.common import (
     Trajectory,
     circle_trajectory,
     line_trajectory,

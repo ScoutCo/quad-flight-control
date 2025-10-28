@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from sim import PositionVelocityCommand
+from quad_flight_control.sim import PositionVelocityCommand
 
 from .config import PathFollowerConfig
 from .plan import Plan, PlanState
