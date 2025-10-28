@@ -4,7 +4,7 @@ from typing import Sequence
 
 import numpy as np
 
-from sim import PositionVelocityCommand, State
+from quad_flight_control.sim import PositionVelocityCommand, State
 
 from .path_follower import (
     PathFollowerDebug,

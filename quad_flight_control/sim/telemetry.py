@@ -1,7 +1,6 @@
 import csv
 from pathlib import Path
 from collections.abc import Iterable
-from typing import Self
 
 import numpy as np
 
@@ -58,7 +57,7 @@ class TelemetryLogger:
         if not self._file.closed:
             self._file.close()
 
-    def __enter__(self) -> Self:
+    def __enter__(self) -> "TelemetryLogger":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

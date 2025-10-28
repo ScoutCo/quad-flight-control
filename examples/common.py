@@ -4,20 +4,20 @@ from pathlib import Path
 
 import numpy as np
 
-from path_follower import (
+from quad_flight_control.path_follower import (
     DEFAULT_PLAN_LOOKAHEAD_OFFSETS,
     PathFollowerConfig,
     PositionVelocityPathFollower,
     SimCommandGenerator,
 )
-from sim import (
+from quad_flight_control.sim import (
     SimulationStep,
     Simulator,
     SimulatorConfig,
     TelemetryLogger,
 )
 
-from common import Trajectory
+from quad_flight_control.common import Trajectory
 
 
 def analyze_history(history: Iterable[SimulationStep], trajectory: Trajectory) -> None:

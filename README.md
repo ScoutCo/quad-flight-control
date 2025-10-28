@@ -1,13 +1,14 @@
 # Quadcopter Controls and Simulation Tools
 
 ## Project Layout
-- `sim/`: simple kinematic simulator to generate represntative poses from position + velocity controls. no dynamics
-- `path_follower/`: setpoint control generation from a plan; port of C++ code
-- `common/`: reusable bits for sim and flight
-- `examples/`: runnable demos that tie the simulator, command generator, and trajectories together
-- `plots/`: viz and plotting tools
-- `flight_test/`: MAVSDK-based scripts for exercising the follower against a real vehicle.
+- `quad_flight_control`: main package
+  - `sim/`: simple kinematic simulator to generate represntative poses from position + velocity controls. no dynamics
+  - `path_follower/`: setpoint control generation from a plan; port of C++ code
+  - `common/`: reusable bits for sim and flight
 - `analysis/`: notebooks and ad-hoc studies
+- `examples/`: runnable demos that tie the simulator, command generator, and trajectories together
+- `flight_test/`: MAVSDK-based scripts for exercising the follower against a real vehicle.
+- `plots/`: viz and plotting tools
 - `tests/`: unit tests 
 
 ## Quick Start
