@@ -457,7 +457,7 @@ def parse_args() -> argparse.Namespace:
         help="Directory to store telemetry logs.",
     )
     parser.add_argument(
-        "--heading_deg",
+        "--heading-deg",
         type=float,
         default=0.0,
         help="Heading for trajectories that take this argument (degrees)."
