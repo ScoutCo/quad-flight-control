@@ -34,6 +34,9 @@ from mavsdk.offboard import OffboardError, PositionNedYaw, VelocityNedYaw
 from common import (
     Trajectory,
     zigzag_trajectory,
+    line_trajectory,
+    circle_trajectory,
+    sinusoid_trajectory,
 )
 from path_follower import (
     DEFAULT_PLAN_LOOKAHEAD_OFFSETS,
@@ -75,7 +78,7 @@ def offset_trajectory(base: Trajectory, anchor_ned: np.ndarray) -> Trajectory:
     return Trajectory(position=position, velocity=velocity, yaw=yaw)
 
 
-def build_reference_trajectory(anchor_ned: np.ndarray) -> Trajectory:
+def build_reference_trajectory(anchor_ned: np.ndarray, args) -> Trajectory:
     """Instantiate the trajectory to fly (edit as desired)."""
 
     # Choose whichever base trajectory you need and adjust parameters.
@@ -87,13 +90,13 @@ def build_reference_trajectory(anchor_ned: np.ndarray) -> Trajectory:
     #     phase_rad=0.0,
     # )
 
-    # base = line_trajectory(speed_m_s=4/.0, heading_rad=math.radians(0.0), altitude_m=0.0)
+    # base = line_trajectory(speed_m_s=4/.0, heading_rad=math.radians(0.0), altitude_m=0.0, heading_rad=math.degrees(args.heading_deg))
 
     # base = sinusoid_trajectory(
     #     forward_speed_m_s=4.0, y_amplitude_m=-10.0, y_frequency_hz=0.05
     # )
 
-    base = zigzag_trajectory(segment_length_m=40.0, num_segments=8, speed_m_s=3)
+    base = zigzag_trajectory(segment_length_m=40.0, num_segments=8, speed_m_s=3, heading_deg=args.heading_deg)
 
     return offset_trajectory(base, anchor_ned)
 
@@ -374,7 +377,7 @@ async def async_main(args: argparse.Namespace) -> None:
             f"[INFO] Anchor position NED: north={anchor[0]:.2f} m, east={anchor[1]:.2f} m, down={anchor[2]:.2f} m"
         )
 
-        trajectory = build_reference_trajectory(anchor)
+        trajectory = build_reference_trajectory(anchor, args)
 
         log_dir = Path(args.log_dir)
         timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
@@ -452,6 +455,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("logs"),
         help="Directory to store telemetry logs.",
+    )
+    parser.add_argument(
+        "--heading-deg",
+        type=float,
+        default=0.0,
+        help="Heading for trajectories that take this argument (degrees)."
     )
     return parser.parse_args()
 
