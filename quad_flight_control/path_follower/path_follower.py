@@ -107,7 +107,7 @@ class PositionVelocityPathFollower:
                 "Plan does not extend far enough into the future.",
             )
 
-        interp_state = _interpolate_plan_state(states, now_s)
+        interp_state = _interpolate_plan_state(states, lookahead_time)
         vel_ff = _compute_feedforward_velocity(states, lookahead_time)
         vel_cmd = self._velocity_smoother.smooth(vel_ff, now_s)
 
